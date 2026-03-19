@@ -178,3 +178,12 @@ AGENTS.md
 claudeKaiju.json
 gpt54.json
 .aider.model.metadata.json
+
+# Pipeline intermediate data (keep only *.py and *_strict8.json in tools/)
+tools/candidates_*.json
+tools/validated*.json
+tools/custom_dataset.json
+tools/dataset_entries.json
+tools/dataset_entries_final.json
+tools/test_results/
+tools/run_test_validation.sh
