@@ -21,6 +21,7 @@ from commit0.harness.constants import Files
 from commit0.harness.spec import Spec
 from commit0.harness.docker_build import (
     close_logger,
+    get_proxy_env,
 )
 from commit0.harness.docker_utils import (
     cleanup_container,
@@ -102,12 +103,14 @@ class Docker(ExecutionContext):
         )
 
         self.client = docker.from_env()
+        proxy_env = get_proxy_env() or None
         self.container = create_container(
             client=self.client,
             image_name=spec.repo_image_key,
             container_name=spec.get_container_name(),
             nano_cpus=num_cpus,
             logger=logger,
+            environment=proxy_env,
         )
         self.container.start()
         if files_to_copy:

@@ -1,12 +1,14 @@
 import logging
+import os
 import re
+import shutil
 import traceback
 import docker
 import docker.errors
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from commit0.harness.constants import (
     BASE_IMAGE_BUILD_DIR,
@@ -16,6 +18,63 @@ from commit0.harness.spec import get_specs_from_dataset
 from commit0.harness.utils import setup_logger, close_logger
 
 ansi_escape = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+
+PROXY_ENV_KEYS = [
+    "http_proxy",
+    "https_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "no_proxy",
+    "NO_PROXY",
+]
+
+
+def _mitm_disabled() -> bool:
+    return os.environ.get("COMMIT0_MITM_DISABLED", "").strip() in ("1", "true", "yes")
+
+
+def get_proxy_env() -> dict[str, str]:
+    """Collect proxy-related env vars from the host. Used for both build args and runtime env.
+
+    Returns empty dict if COMMIT0_MITM_DISABLED=1.
+    """
+    if _mitm_disabled():
+        return {}
+    return {k: os.environ[k] for k in PROXY_ENV_KEYS if os.environ.get(k)}
+
+
+def _is_pem_cert(path: Path) -> bool:
+    try:
+        with open(path, "rb") as f:
+            first_line = f.readline()
+        return b"-----BEGIN CERTIFICATE-----" in first_line
+    except (OSError, IOError):
+        return False
+
+
+def _resolve_mitm_ca_cert() -> Optional[Path]:
+    """Find the MITM CA certificate.
+
+    Search order:
+      1. MITM_CA_CERT env var (explicit path)
+      2. ~/.mitmproxy/mitmproxy-ca-cert.pem (mitmproxy default)
+
+    Returns None if disabled via COMMIT0_MITM_DISABLED=1 or no valid cert found.
+    """
+    if _mitm_disabled():
+        return None
+
+    env_path = os.environ.get("MITM_CA_CERT")
+    if env_path:
+        p = Path(env_path)
+        if p.is_file() and _is_pem_cert(p):
+            return p
+
+    default_path = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
+    if default_path.is_file() and _is_pem_cert(default_path):
+        return default_path
+
+    return None
 
 
 class BuildImageError(Exception):
@@ -41,6 +100,7 @@ def build_image(
     client: docker.DockerClient,
     build_dir: Path,
     nocache: bool = False,
+    mitm_ca_cert: Optional[Path] = None,
 ) -> None:
     """Builds a docker image with the given name, setup scripts, dockerfile, and platform.
 
@@ -53,9 +113,9 @@ def build_image(
         client (docker.DockerClient): Docker client to use for building the image
         build_dir (Path): Directory for the build context (will also contain logs, scripts, and artifacts)
         nocache (bool): Whether to use the cache when building
+        mitm_ca_cert (Path): Pre-resolved path to a MITM CA certificate PEM file
 
     """
-    # Create a logger for the build process
     logger = setup_logger(image_name, build_dir / "build_image.log")
     logger.info(
         f"Building image {image_name}\n"
@@ -66,7 +126,6 @@ def build_image(
     for setup_script_name, setup_script in setup_scripts.items():
         logger.info(f"[SETUP SCRIPT] {setup_script_name}:\n{setup_script}")
     try:
-        # Write the setup scripts to the build directory
         for setup_script_name, setup_script in setup_scripts.items():
             setup_script_path = build_dir / setup_script_name
             with open(setup_script_path, "w") as f:
@@ -76,12 +135,18 @@ def build_image(
                     f"Setup script {setup_script_name} may not be used in Dockerfile"
                 )
 
-        # Write the dockerfile to the build directory
         dockerfile_path = build_dir / "Dockerfile"
         with open(dockerfile_path, "w") as f:
             f.write(dockerfile)
 
-        # Build the image
+        if mitm_ca_cert:
+            shutil.copy2(mitm_ca_cert, build_dir / "mitm-ca.crt")
+            logger.info(f"Injecting MITM CA cert from {mitm_ca_cert}")
+
+        buildargs = get_proxy_env()
+        if buildargs:
+            logger.info(f"Forwarding proxy build args: {list(buildargs.keys())}")
+
         logger.info(
             f"Building docker image {image_name} in {build_dir} with platform {platform}"
         )
@@ -93,12 +158,11 @@ def build_image(
             decode=True,
             platform=platform,
             nocache=nocache,
+            buildargs=buildargs if buildargs else None,
         )
 
-        # Log the build process continuously
         for chunk in response:
             if "stream" in chunk:
-                # Remove ANSI escape sequences from the log
                 chunk_stream = ansi_escape.sub("", chunk["stream"])
                 logger.info(chunk_stream.strip())
         logger.info("Image built successfully!")
@@ -109,11 +173,14 @@ def build_image(
         logger.error(f"Error building image {image_name}: {e}")
         raise BuildImageError(image_name, str(e), logger) from e
     finally:
-        close_logger(logger)  # functions that create loggers should close them
+        close_logger(logger)
 
 
 def build_base_images(
-    client: docker.DockerClient, dataset: list, dataset_type: str
+    client: docker.DockerClient,
+    dataset: list,
+    dataset_type: str,
+    mitm_ca_cert: Optional[Path] = None,
 ) -> None:
     """Builds the base images required for the dataset if they do not already exist.
 
@@ -122,24 +189,28 @@ def build_base_images(
         client (docker.DockerClient): Docker client to use for building the images
         dataset (list): List of test specs or dataset to build images for
         dataset_type(str): The type of dataset. Choices are commit0 and swebench
+        mitm_ca_cert (Path): Pre-resolved MITM CA cert path (or None)
 
     """
-    # Get the base images to build from the dataset
     test_specs = get_specs_from_dataset(dataset, dataset_type, absolute=True)
     base_images = {
         x.base_image_key: (x.base_dockerfile, x.platform) for x in test_specs
     }
 
-    # Build the base images
     for image_name, (dockerfile, platform) in base_images.items():
         try:
-            # Check if the base image already exists
             client.images.get(image_name)
-            print(f"Base image {image_name} already exists, skipping build.")
+            if mitm_ca_cert:
+                print(
+                    f"WARNING: Base image {image_name} already exists but MITM CA cert "
+                    f"was found at {mitm_ca_cert}. If the cert was added after the base "
+                    f"image was built, delete the old image: docker rmi {image_name}"
+                )
+            else:
+                print(f"Base image {image_name} already exists, skipping build.")
             continue
         except docker.errors.ImageNotFound:
             pass
-        # Build the base image (if it does not exist or force rebuild is enabled)
         print(f"Building base image ({image_name})")
         build_image(
             image_name=image_name,
@@ -148,6 +219,7 @@ def build_base_images(
             platform=platform,
             client=client,
             build_dir=BASE_IMAGE_BUILD_DIR / image_name.replace(":", "__"),
+            mitm_ca_cert=mitm_ca_cert,
         )
     print("Base images built successfully.")
 
@@ -169,7 +241,6 @@ def get_repo_configs_to_build(
     test_specs = get_specs_from_dataset(dataset, dataset_type, absolute=True)
 
     for test_spec in test_specs:
-        # Check if the base image exists
         try:
             client.images.get(test_spec.base_image_key)
         except docker.errors.ImageNotFound:
@@ -178,7 +249,6 @@ def get_repo_configs_to_build(
                 "Please build the base images first."
             )
 
-        # Check if the repo image exists
         image_exists = False
         try:
             client.images.get(test_spec.repo_image_key)
@@ -186,7 +256,6 @@ def get_repo_configs_to_build(
         except docker.errors.ImageNotFound:
             pass
         if not image_exists:
-            # Add the repo image to the list of images to build
             image_scripts[test_spec.repo_image_key] = {
                 "setup_script": test_spec.setup_script,
                 "dockerfile": test_spec.repo_dockerfile,
@@ -218,20 +287,31 @@ def build_repo_images(
         failed: a list of docker image keys for which build failed
 
     """
-    build_base_images(client, dataset, dataset_type)
+    # Resolve MITM cert ONCE — consistent across all parallel builds
+    mitm_ca_cert = _resolve_mitm_ca_cert()
+    if mitm_ca_cert:
+        print(f"MITM CA cert: {mitm_ca_cert}")
+    proxy_env = get_proxy_env()
+    if proxy_env:
+        print(f"Proxy env vars detected: {list(proxy_env.keys())}")
+    if mitm_ca_cert and not proxy_env:
+        print(
+            "WARNING: MITM CA cert found but no proxy env vars (http_proxy/https_proxy) "
+            "are set. The cert will be installed but traffic won't route through a proxy."
+        )
+
+    build_base_images(client, dataset, dataset_type, mitm_ca_cert=mitm_ca_cert)
     configs_to_build = get_repo_configs_to_build(client, dataset, dataset_type)
     if len(configs_to_build) == 0:
         print("No repo images need to be built.")
         return [], []
     print(f"Total repo images to build: {len(configs_to_build)}")
 
-    # Build the repo images
     successful, failed = list(), list()
     with tqdm(
         total=len(configs_to_build), smoothing=0, desc="Building repo images"
     ) as pbar:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Create a future for each image to build
             futures = {
                 executor.submit(
                     build_image,
@@ -241,15 +321,15 @@ def build_repo_images(
                     config["platform"],
                     client,
                     REPO_IMAGE_BUILD_DIR / image_name.replace(":", "__"),
+                    False,  # nocache
+                    mitm_ca_cert,
                 ): image_name
                 for image_name, config in configs_to_build.items()
             }
 
-            # Wait for each future to complete
             for future in as_completed(futures):
                 pbar.update(1)
                 try:
-                    # Update progress bar, check if image built successfully
                     future.result()
                     successful.append(futures[future])
                 except BuildImageError as e:
@@ -263,13 +343,11 @@ def build_repo_images(
                     failed.append(futures[future])
                     continue
 
-    # Show how many images failed to build
     if len(failed) == 0:
         print("All repo images built successfully.")
     else:
         print(f"{len(failed)} repo images failed to build.")
 
-    # Return the list of (un)successfuly built images
     return successful, failed
 
 

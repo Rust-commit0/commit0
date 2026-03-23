@@ -1,12 +1,15 @@
-# IF you change the base image, you need to rebuild all images (run with --force_rebuild)
-# NOTE: The native Rust `uv` binary segfaults under QEMU (amd64 on arm64 hosts).
-# We install a bash shim that maps `uv venv` → `python -m venv` and `uv pip` → `pip`.
-# This is required for ARM64 hosts (Mac, EC2 Graviton) running amd64 Docker images.
 _DOCKERFILE_BASE = r"""
 FROM --platform={platform} ubuntu:22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
+
+ARG http_proxy
+ARG https_proxy
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG no_proxy="localhost,127.0.0.1,::1"
+ARG NO_PROXY="localhost,127.0.0.1,::1"
 
 RUN apt update && apt install -y \
 wget \
@@ -21,14 +24,14 @@ curl \
 locales \
 locales-all \
 tzdata \
+ca-certificates \
 && rm -rf /var/lib/apt/lists/*
 
-# Install the latest version of Git
 RUN apt-get update && apt-get install software-properties-common -y
 RUN add-apt-repository ppa:git-core/ppa -y
 RUN apt-get update && apt-get install git -y
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates python3-venv software-properties-common
+RUN apt-get update && apt-get install -y --no-install-recommends python3-venv
 
 RUN add-apt-repository ppa:deadsnakes/ppa -y && apt-get update && \
     apt-get install -y python3.10 python3.10-venv python3.10-dev python3.12 python3.12-venv python3.12-dev || true
@@ -46,9 +49,37 @@ RUN echo '#!/bin/bash' > /usr/local/bin/uv && \
     echo '  echo "uv shim: unsupported: $@" >&2; exit 1' >> /usr/local/bin/uv && \
     echo 'fi' >> /usr/local/bin/uv && \
     chmod +x /usr/local/bin/uv
+
+RUN mkdir -p /etc/pki/tls/certs /etc/pki/tls /etc/pki/ca-trust/extracted/pem /etc/ssl/certs && \
+    ln -sf /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt && \
+    ln -sf /etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem && \
+    ln -sf /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/cert.pem && \
+    ln -sf /etc/ssl/certs/ca-certificates.crt /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
+COPY mitm-ca.cr[t] /tmp/
+RUN if [ -f /tmp/mitm-ca.crt ]; then \
+        cp /tmp/mitm-ca.crt /usr/local/share/ca-certificates/mitm-ca.crt && \
+        update-ca-certificates && \
+        echo "MITM CA certificate installed successfully"; \
+    else \
+        echo "No MITM CA certificate found, skipping"; \
+    fi && \
+    rm -f /tmp/mitm-ca.crt
 """
 
 _DOCKERFILE_REPO = r"""FROM --platform={platform} commit0.base:latest
+
+ARG http_proxy
+ARG https_proxy
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG no_proxy="localhost,127.0.0.1,::1"
+ARG NO_PROXY="localhost,127.0.0.1,::1"
 
 COPY ./setup.sh /root/
 RUN chmod +x /root/setup.sh
@@ -56,7 +87,6 @@ RUN /bin/bash /root/setup.sh
 
 WORKDIR /testbed/
 
-# Automatically activate the testbed environment
 RUN echo "source /testbed/.venv/bin/activate" > /root/.bashrc
 """
 

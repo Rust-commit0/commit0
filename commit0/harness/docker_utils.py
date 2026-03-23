@@ -251,6 +251,7 @@ def create_container(
     user: Optional[str] = None,
     command: Optional[str] = "tail -f /dev/null",
     nano_cpus: Optional[int] = None,
+    environment: Optional[dict[str, str]] = None,
 ) -> Container:
     """Start a Docker container using the specified image.
 
@@ -263,6 +264,7 @@ def create_container(
     user (str, option): Log in as which user. Defaults to None.
     command (str, optional): Command to run in the container. Defaults to None.
     nano_cpus (int, optional): The number of CPUs for the container. Defaults to None.
+    environment (dict, optional): Environment variables to inject into the container runtime.
 
     Returns:
     -------
@@ -287,6 +289,7 @@ def create_container(
             user=user,
             command=command,
             nano_cpus=nano_cpus,
+            environment=environment,
             detach=True,
         )
         logger.info(f"Container for {image_name} created: {container.id}")
