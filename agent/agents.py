@@ -11,8 +11,8 @@ import os
 
 BEDROCK_REGION_MODEL_PRICING = {
     "moonshotai.kimi-k2.5": {
-        "input_cost_per_token": 7.2e-07,
-        "output_cost_per_token": 3.6e-06,
+        "input_cost_per_token": 6e-07,
+        "output_cost_per_token": 3e-06,
         "max_input_tokens": 262144,
         "max_output_tokens": 262144,
         "max_tokens": 262144,
