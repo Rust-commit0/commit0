@@ -1,5 +1,5 @@
 _DOCKERFILE_BASE = r"""
-FROM --platform={platform} ubuntu:22.04
+FROM ubuntu:22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
@@ -72,7 +72,7 @@ RUN if [ -f /tmp/mitm-ca.crt ]; then \
     rm -f /tmp/mitm-ca.crt
 """
 
-_DOCKERFILE_REPO = r"""FROM --platform={platform} commit0.base:latest
+_DOCKERFILE_REPO = r"""FROM commit0.base:latest
 
 ARG http_proxy
 ARG https_proxy
@@ -91,12 +91,12 @@ RUN echo "source /testbed/.venv/bin/activate" > /root/.bashrc
 """
 
 
-def get_dockerfile_base(platform: str) -> str:
-    return _DOCKERFILE_BASE.format(platform=platform)
+def get_dockerfile_base() -> str:
+    return _DOCKERFILE_BASE
 
 
-def get_dockerfile_repo(platform: str) -> str:
-    return _DOCKERFILE_REPO.format(platform=platform)
+def get_dockerfile_repo() -> str:
+    return _DOCKERFILE_REPO
 
 
 __all__ = []

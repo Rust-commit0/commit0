@@ -84,15 +84,15 @@ class Spec(ABC):
 
     @property
     def base_dockerfile(self) -> str:
-        return get_dockerfile_base(self.platform)
+        return get_dockerfile_base()
 
     @property
     def repo_dockerfile(self) -> str:
-        return get_dockerfile_repo(self.platform)
+        return get_dockerfile_repo()
 
     @property
     def platform(self) -> str:
-        return "linux/x86_64"
+        return "linux/amd64,linux/arm64"
 
     @abstractmethod
     def make_repo_script_list(self) -> list[str]:

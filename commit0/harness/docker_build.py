@@ -1,7 +1,9 @@
 import logging
 import os
+import platform as _platform
 import re
 import shutil
+import subprocess
 import traceback
 import docker
 import docker.errors
@@ -13,11 +15,21 @@ from typing import Any, Optional
 from commit0.harness.constants import (
     BASE_IMAGE_BUILD_DIR,
     REPO_IMAGE_BUILD_DIR,
+    OCI_IMAGE_DIR,
 )
 from commit0.harness.spec import get_specs_from_dataset
 from commit0.harness.utils import setup_logger, close_logger
 
 ansi_escape = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+
+
+def _native_platform() -> str:
+    """Return the Docker platform string for the current machine architecture."""
+    machine = _platform.machine()
+    if machine in ("arm64", "aarch64"):
+        return "linux/arm64"
+    return "linux/amd64"
+
 
 PROXY_ENV_KEYS = [
     "http_proxy",
@@ -104,12 +116,16 @@ def build_image(
 ) -> None:
     """Builds a docker image with the given name, setup scripts, dockerfile, and platform.
 
+    Produces two outputs:
+      1. A multi-arch OCI tarball (linux/amd64 + linux/arm64) for pushing to a container registry.
+      2. A native-arch image loaded into the local Docker daemon for immediate use.
+
     Args:
     ----
         image_name (str): Name of the image to build
         setup_scripts (dict): Dictionary of setup script names to setup script contents
         dockerfile (str): Contents of the Dockerfile
-        platform (str): Platform to build the image for
+        platform (str): Comma-separated platforms for the OCI tarball (e.g. "linux/amd64,linux/arm64")
         client (docker.DockerClient): Docker client to use for building the image
         build_dir (Path): Directory for the build context (will also contain logs, scripts, and artifacts)
         nocache (bool): Whether to use the cache when building
@@ -150,25 +166,65 @@ def build_image(
         logger.info(
             f"Building docker image {image_name} in {build_dir} with platform {platform}"
         )
-        response = client.api.build(
-            path=str(build_dir),
-            tag=image_name,
-            rm=True,
-            forcerm=True,
-            decode=True,
-            platform=platform,
-            nocache=nocache,
-            buildargs=buildargs if buildargs else None,
-        )
 
-        for chunk in response:
-            if "stream" in chunk:
-                chunk_stream = ansi_escape.sub("", chunk["stream"])
-                logger.info(chunk_stream.strip())
+        buildarg_flags: list[str] = []
+        for k, v in buildargs.items():
+            buildarg_flags.extend(["--build-arg", f"{k}={v}"])
+
+        nocache_flags = ["--no-cache"] if nocache else []
+
+        # Step 1: Build multi-arch OCI tarball for ECR push
+        oci_dir = OCI_IMAGE_DIR / image_name.replace(":", "__")
+        oci_dir.mkdir(parents=True, exist_ok=True)
+        oci_tar_path = oci_dir / f"{image_name.replace(':', '__')}.tar"
+
+        oci_cmd = [
+            "docker",
+            "buildx",
+            "build",
+            "--platform",
+            platform,
+            "--tag",
+            image_name,
+            "--output",
+            f"type=oci,dest={oci_tar_path}",
+            *nocache_flags,
+            *buildarg_flags,
+            str(build_dir),
+        ]
+        logger.info(f"Building OCI tarball: {' '.join(oci_cmd)}")
+        oci_result = subprocess.run(oci_cmd, capture_output=True, text=True)
+        for line in (oci_result.stderr or "").splitlines():
+            logger.info(ansi_escape.sub("", line))
+        if oci_result.returncode != 0:
+            raise BuildImageError(image_name, oci_result.stderr, logger)
+        logger.info(f"OCI tarball saved to {oci_tar_path}")
+
+        # Step 2: Load native-arch image into local daemon for immediate use
+        native = _native_platform()
+        load_cmd = [
+            "docker",
+            "buildx",
+            "build",
+            "--platform",
+            native,
+            "--tag",
+            image_name,
+            "--load",
+            *nocache_flags,
+            *buildarg_flags,
+            str(build_dir),
+        ]
+        logger.info(f"Loading native image ({native}): {' '.join(load_cmd)}")
+        load_result = subprocess.run(load_cmd, capture_output=True, text=True)
+        for line in (load_result.stderr or "").splitlines():
+            logger.info(ansi_escape.sub("", line))
+        if load_result.returncode != 0:
+            raise BuildImageError(image_name, load_result.stderr, logger)
+
         logger.info("Image built successfully!")
-    except docker.errors.APIError as e:
-        logger.error(f"docker.errors.APIError during {image_name}: {e}")
-        raise BuildImageError(image_name, str(e), logger) from e
+    except BuildImageError:
+        raise
     except Exception as e:
         logger.error(f"Error building image {image_name}: {e}")
         raise BuildImageError(image_name, str(e), logger) from e

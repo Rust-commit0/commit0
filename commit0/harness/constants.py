@@ -54,6 +54,7 @@ BASE_BRANCH = "commit0"
 # Constants - Evaluation Log Directories
 BASE_IMAGE_BUILD_DIR = Path("logs/build_images/base")
 REPO_IMAGE_BUILD_DIR = Path("logs/build_images/repo")
+OCI_IMAGE_DIR = Path("logs/build_images/oci")
 RUN_PYTEST_LOG_DIR = Path("logs/pytest")
 RUN_AGENT_LOG_DIR = Path("logs/agent")
 
