@@ -157,5 +157,11 @@ lint.unfixable = []
 [tool.ruff.lint.extend-per-file-ignores]
 "tests/**/*.py" = ["D"]
 
+[tool.uv]
+override-dependencies = [
+    "litellm",
+]
+
 [tool.uv.sources]
-aider-chat = { git = "https://github.com/wenting-zhao/aider.git" }
+aider-chat = { git = "https://github.com/Ethara-Ai/aider.git", branch = "main" }
+litellm = { git = "https://github.com/Ethara-Ai/litellm.git", branch = "main" }
