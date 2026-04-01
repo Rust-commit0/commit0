@@ -196,3 +196,4 @@ dataset_workspace/
 docs/pipeline-architecture.md
 docs/repo-selection-checklist.md
 scripts/
+.DS_Store
