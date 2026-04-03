@@ -133,12 +133,12 @@ resolve_model() {
             CACHE_PROMPTS="false"
             ;;
         glm5)
-            MODEL_NAME="bedrock/converse/arn:aws:bedrock:ap-south-1:426628337772:application-inference-profile/zhgjxd0sx776"
+            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/8lzlkxguk85a"
             MODEL_SHORT="glm-5"
             CACHE_PROMPTS="false"
             ;;
         minimax)
-            MODEL_NAME="bedrock/converse/arn:aws:bedrock:ap-south-1:426628337772:application-inference-profile/bbb8d58q374o"
+            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/6oaav7wbxid4"
             MODEL_SHORT="minimax-m2.5"
             CACHE_PROMPTS="false"
             ;;

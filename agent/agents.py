@@ -73,7 +73,7 @@ def register_bedrock_arn_pricing(model_name: str) -> None:
                 region = part
                 break
 
-        client = boto3.client("bedrock", region_name=region or "ap-south-1")
+        client = boto3.client("bedrock", region_name=region or "us-east-1")
         arn = model_name.split("bedrock/")[-1]
         if arn.startswith("converse/"):
             arn = arn[len("converse/") :]
