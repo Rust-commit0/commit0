@@ -126,6 +126,9 @@ class Commit0Spec(Spec):
             # Fetch both commits needed: env_setup_commit for setup and base_commit for later reset
             f"git fetch --depth 1 origin {env_setup_commit} {base_commit}",
             f"git reset --hard {env_setup_commit}",
+            # Initialize git submodules (no-op for repos without submodules).
+            # Must run BEFORE removing origin — submodule URLs may be relative.
+            "git submodule update --init --recursive 2>/dev/null || true",
             # Remove the remote so the agent won't see newer commits.
             "git remote remove origin",
             f"uv venv --python {specs['python']}",

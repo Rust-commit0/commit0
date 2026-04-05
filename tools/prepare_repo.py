@@ -434,6 +434,19 @@ def quick_import_check(repo_dir: Path, src_dir: str) -> tuple[bool, str]:
         error = (
             result.stderr.strip().split("\n")[-1] if result.stderr else "unknown error"
         )
+        # Missing external dep (e.g. parso for jedi) is inconclusive, not a stub failure
+        if "No module named" in error:
+            missing = ""
+            if "'" in error:
+                parts_q = error.split("'")
+                if len(parts_q) >= 2:
+                    missing = parts_q[1]
+            if missing and not missing.startswith(import_name):
+                logger.info(
+                    "  Import check inconclusive: external dep '%s' missing (not a stub issue)",
+                    missing,
+                )
+                return True, f"inconclusive: external dep '{missing}' not installed"
         return False, error
     except subprocess.TimeoutExpired:
         return False, "import timed out after 30s"

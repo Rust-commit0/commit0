@@ -1,4 +1,5 @@
 import logging
+import sys
 
 import docker
 from typing import Iterator, Union
@@ -53,7 +54,16 @@ def main(
         specs.append(spec)
 
     client = docker.from_env()
-    build_repo_images(client, specs, dataset_type, num_workers, verbose)
+    successful, failed = build_repo_images(
+        client, specs, dataset_type, num_workers, verbose
+    )
+    if failed:
+        logger.error(
+            "Failed to build %d image(s): %s",
+            len(failed),
+            failed,
+        )
+        sys.exit(1)
 
 
 __all__ = []
