@@ -313,4 +313,4 @@ def run_agent(
                 results.append(result)
 
             for result in results:
-                result.wait()
+                result.get()

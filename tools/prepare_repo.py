@@ -251,6 +251,11 @@ def detect_src_dir(repo_dir: Path, full_name: str) -> str:
             if (child / "__init__.py").exists():
                 return f"src/{child.name}"
 
+    # 6. Single-file module: {package_name}.py at repo root (e.g. pycodestyle.py)
+    single_file = repo_dir / f"{package_name}.py"
+    if single_file.is_file():
+        return "."
+
     return ""
 
 
@@ -345,7 +350,12 @@ def create_stubbed_branch(
     removed_count = 0
     errors = 0
 
-    for py_file in sorted(stub_target.rglob("*.py")):
+    if src_dir in (".", ""):
+        py_files = sorted(stub_target.glob("*.py"))
+    else:
+        py_files = sorted(stub_target.rglob("*.py"))
+
+    for py_file in py_files:
         rel = py_file.relative_to(repo_dir)
 
         if is_test_file(py_file):

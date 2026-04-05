@@ -180,6 +180,34 @@ def collect_python_files(directory: str) -> list[str]:
     return python_files
 
 
+# Directories that should never be treated as source code by the agent.
+# Only applied when src_dir is "." (repo-root traversal) to prevent
+# malformed test data, examples, and build artifacts from leaking in.
+EXCLUDED_DIRS: set[str] = {
+    "testing",
+    "examples",
+    "example",
+    "benchmarks",
+    "benchmark",
+    "docs",
+    "doc",
+    "documentation",
+    ".git",
+    ".github",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    "build",
+    "dist",
+    "node_modules",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "env",
+    ".env",
+}
+
+
 def _find_files_to_edit(base_dir: str, src_dir: str, test_dir: str) -> list[str]:
     """Identify files to remove content by heuristics.
     We assume source code is under [lib]/[lib] or [lib]/src.
@@ -191,21 +219,42 @@ def _find_files_to_edit(base_dir: str, src_dir: str, test_dir: str) -> list[str]
         base_dir (str): The path to local library.
         src_dir (str): The directory containing source code.
         test_dir (str): The directory containing test code.
+            May be comma-separated for multiple test directories
+            (e.g. "tests,testing").
 
     Returns:
     -------
         list[str]: A list of files to be edited.
 
     """
-    files = collect_python_files(os.path.join(base_dir, src_dir))
-    test_files = collect_test_files(os.path.join(base_dir, test_dir))
-    files = list(set(files) - set(test_files))
+    files = [
+        os.path.normpath(f)
+        for f in collect_python_files(os.path.join(base_dir, src_dir))
+    ]
+
+    test_dirs = [d.strip() for d in test_dir.split(",") if d.strip()]
+    test_files: set[str] = set()
+    for td in test_dirs:
+        test_files.update(
+            os.path.normpath(f) for f in collect_test_files(os.path.join(base_dir, td))
+        )
+    files = list(set(files) - test_files)
+
+    if src_dir in (".", ""):
+        base = Path(base_dir)
+        files = [
+            f
+            for f in files
+            if not any(
+                part in EXCLUDED_DIRS for part in Path(f).relative_to(base).parts
+            )
+        ]
 
     # don't edit __init__ files
     files = [f for f in files if "__init__" not in f]
     # don't edit __main__ files
     files = [f for f in files if "__main__" not in f]
-    # don't edit confest.py files
+    # don't edit conftest.py files
     files = [f for f in files if "conftest.py" not in f]
     return files
 
