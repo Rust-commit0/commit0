@@ -1,0 +1,15 @@
+- name: bedrock/global.anthropic.claude-opus-4-6-v1
+  edit_format: diff
+  use_repo_map: true
+  examples_as_sys_msg: false
+  use_temperature: false
+  extra_params:
+    max_tokens: 128000
+    thinking:
+      type: enabled
+      budget_tokens: 10000
+  cache_control: true
+  reasoning_tag: thinking
+  remove_reasoning: thinking
+  accepts_settings:
+    - thinking_tokens

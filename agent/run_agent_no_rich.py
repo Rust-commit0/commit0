@@ -1,4 +1,5 @@
 import os
+import time
 import yaml
 import multiprocessing
 from tqdm import tqdm
@@ -18,6 +19,7 @@ import json
 from agent.agents import AiderAgents
 from typing import cast
 from agent.class_types import AgentConfig
+from agent.thinking_capture import ThinkingCapture
 from commit0.harness.constants import SPLIT
 from commit0.harness.get_pytest_ids import main as get_tests
 from commit0.harness.constants import RUN_AGENT_LOG_DIR, RepoInstance
@@ -90,6 +92,10 @@ def run_agent_for_repo(
             f"{agent_config.agent_name} is not implemented; please add your implementations in baselines/agents.py."
         )
 
+    thinking_capture = (
+        ThinkingCapture() if getattr(agent_config, "capture_thinking", False) else None
+    )
+
     # Check if there are changes in the current branch
     if local_repo.is_dirty():
         # Stage all changes
@@ -136,6 +142,10 @@ def run_agent_for_repo(
     with open(agent_config_log_file, "w") as agent_config_file:
         yaml.dump(agent_config, agent_config_file)
 
+    message = ""
+
+    stage_start_time = time.monotonic()
+
     with DirContext(repo_path):
         if agent_config is None:
             raise ValueError("Invalid input")
@@ -164,6 +174,9 @@ def run_agent_for_repo(
                     target_edit_files,
                     test_log_dir,
                     test_first=True,
+                    thinking_capture=thinking_capture,
+                    current_stage="test",
+                    current_module=test_file_name,
                 )
                 _mark_module_done(test_log_dir)
 
@@ -192,6 +205,9 @@ def run_agent_for_repo(
                     [lint_file],
                     lint_log_dir,
                     lint_first=True,
+                    thinking_capture=thinking_capture,
+                    current_stage="lint",
+                    current_module=lint_file_name,
                 )
                 _mark_module_done(lint_log_dir)
 
@@ -218,7 +234,16 @@ def run_agent_for_repo(
                 lint_cmd = get_lint_cmd(
                     repo_name, agent_config.use_lint_info, commit0_config_file
                 )
-                _ = agent.run(message, "", lint_cmd, [f], file_log_dir)
+                _ = agent.run(
+                    message,
+                    "",
+                    lint_cmd,
+                    [f],
+                    file_log_dir,
+                    thinking_capture=thinking_capture,
+                    current_stage="draft",
+                    current_module=file_name,
+                )
                 _mark_module_done(file_log_dir)
 
                 if agent_config.record_test_for_each_commit:
@@ -229,6 +254,56 @@ def run_agent_for_repo(
     if agent_config.record_test_for_each_commit:
         with open(experiment_log_dir / "eval_results.json", "w") as f:
             json.dump(eval_results, f)
+
+    if thinking_capture is not None:
+        try:
+            from agent.output_writer import (
+                extract_git_patch,
+                build_metadata,
+            )
+            from agent.openhands_formatter import write_openhands_jsonl
+            from agent.trajectory_writer import write_trajectory_md
+
+            commit0_config = read_commit0_config_file(commit0_config_file)
+            git_patch = extract_git_patch(repo_path, example["base_commit"])
+
+            instance_id = (
+                example["instance_id"]
+                if "instance_id" in example.keys()
+                else f"commit-0/{repo_name}"
+            )
+            metadata = build_metadata(
+                model_name=agent_config.model_name,
+                dataset_path=commit0_config.get("dataset_name", ""),
+                max_iterations=agent_config.max_iteration,
+            )
+
+            stage_runtime = time.monotonic() - stage_start_time
+
+            write_openhands_jsonl(
+                output_path=str(experiment_log_dir / "output.jsonl"),
+                turns=thinking_capture.turns,
+                instance_id=instance_id,
+                git_patch=git_patch,
+                instruction=message if message else "",
+                metadata=metadata,
+                metrics=thinking_capture.get_metrics(),
+                stage_runtime_seconds=stage_runtime,
+            )
+
+            if getattr(agent_config, "trajectory_md", True):
+                write_trajectory_md(
+                    output_path=experiment_log_dir / "trajectory.md",
+                    repo_name=repo_name,
+                    turns=thinking_capture.turns,
+                )
+
+            logger.info(
+                f"Wrote thinking capture: {len(thinking_capture.turns)} turns, "
+                f"{thinking_capture.get_metrics()['total_thinking_tokens']} thinking tokens"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to write thinking capture output: {e}")
 
 
 def run_agent(

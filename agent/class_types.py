@@ -23,3 +23,8 @@ class AgentConfig:
     max_iteration: int
     record_test_for_each_commit: bool
     cache_prompts: bool = True
+
+    # --- Thinking capture fields ---
+    capture_thinking: bool = False  # Whether to capture reasoning tokens
+    trajectory_md: bool = True  # Whether to write trajectory.md
+    output_jsonl: bool = False  # Whether to write output.jsonl
