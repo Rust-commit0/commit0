@@ -44,7 +44,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # GitHub org to fork repos into
-DEFAULT_ORG = "Ethara-Ai"
+DEFAULT_ORG = "Zahgon"
 
 # Import stub module
 TOOLS_DIR = Path(__file__).parent

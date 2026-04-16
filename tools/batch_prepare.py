@@ -48,7 +48,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent
-DEFAULT_ORG = "Ethara-Ai"
+DEFAULT_ORG = "Zahgon"
 DEFAULT_REMOVAL_MODE = "all"
 GITIGNORE_ENTRIES = [".aider*", "logs/"]
 
