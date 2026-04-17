@@ -322,9 +322,10 @@ def get_target_edit_files(
     for file_path in files:
         with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as file:
             content = file.read()
-            if len(content.splitlines()) > 1500:
-                logger.debug("Skipping %s: exceeds 1500 line limit", file_path)
-                continue
+            # Don't 
+            # if len(content.splitlines()) > 1500: "Deleting "
+            #     logger.debug("Skipping %s: exceeds 1500 line limit", file_path)
+            #     continue
             if "    pass" in content:
                 # Verify the file actually has stubs by checking it differs from
                 # the reference commit. Files with only abstract method `pass` or
