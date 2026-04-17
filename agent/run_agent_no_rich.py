@@ -159,6 +159,25 @@ def run_agent_for_repo(
 
     stage_start_time = time.monotonic()
 
+    from agent.openhands_formatter import write_module_output_json
+
+    instance_id = ""
+    metadata: dict = {}
+    if thinking_capture is not None:
+        from agent.output_writer import extract_git_patch, build_metadata
+
+        commit0_config_for_meta = read_commit0_config_file(commit0_config_file)
+        instance_id = (
+            example["instance_id"]
+            if "instance_id" in example.keys()
+            else f"commit-0/{repo_name}"
+        )
+        metadata = build_metadata(
+            model_name=agent_config.model_name,
+            dataset_path=commit0_config_for_meta.get("dataset_name", ""),
+            max_iterations=agent_config.max_iteration,
+        )
+
     with DirContext(repo_path):
         if agent_config is None:
             raise ValueError("Invalid input")
@@ -185,6 +204,7 @@ def run_agent_for_repo(
                     for c in spec_costs:
                         thinking_capture.summarizer_costs.add(c)
 
+                pre_sha = local_repo.head.commit.hexsha
                 _ = agent.run(
                     "",
                     test_cmd,
@@ -199,6 +219,29 @@ def run_agent_for_repo(
                     spec_summary_max_tokens=agent_config.spec_summary_max_tokens,
                 )
                 _mark_module_done(test_log_dir)
+
+                if thinking_capture is not None:
+                    post_sha = local_repo.head.commit.hexsha
+                    module_patch = (
+                        local_repo.git.diff(pre_sha, post_sha, "--", ".")
+                        if pre_sha != post_sha
+                        else ""
+                    )
+                    module_turns = thinking_capture.get_module_turns(test_file_name)
+                    if module_turns:
+                        write_module_output_json(
+                            output_dir=str(test_log_dir),
+                            module_turns=module_turns,
+                            module=test_file_name,
+                            instance_id=f"{instance_id}__{test_file_name}"
+                            if instance_id
+                            else test_file_name,
+                            git_patch=module_patch,
+                            instruction=message,
+                            metadata=metadata,
+                            metrics=thinking_capture.get_module_metrics(test_file_name),
+                            stage="test",
+                        )
 
                 if agent_config.record_test_for_each_commit:
                     current_commit = local_repo.head.commit.hexsha
@@ -224,6 +267,7 @@ def run_agent_for_repo(
                     repo_name, agent_config.use_lint_info, commit0_config_file
                 )
 
+                pre_sha = local_repo.head.commit.hexsha
                 _ = agent.run(
                     "",
                     "",
@@ -236,6 +280,29 @@ def run_agent_for_repo(
                     current_module=lint_file_name,
                 )
                 _mark_module_done(lint_log_dir)
+
+                if thinking_capture is not None:
+                    post_sha = local_repo.head.commit.hexsha
+                    module_patch = (
+                        local_repo.git.diff(pre_sha, post_sha, "--", ".")
+                        if pre_sha != post_sha
+                        else ""
+                    )
+                    module_turns = thinking_capture.get_module_turns(lint_file_name)
+                    if module_turns:
+                        write_module_output_json(
+                            output_dir=str(lint_log_dir),
+                            module_turns=module_turns,
+                            module=lint_file_name,
+                            instance_id=f"{instance_id}__{lint_file_name}"
+                            if instance_id
+                            else lint_file_name,
+                            git_patch=module_patch,
+                            instruction=message,
+                            metadata=metadata,
+                            metrics=thinking_capture.get_module_metrics(lint_file_name),
+                            stage="lint",
+                        )
 
                 if agent_config.record_test_for_each_commit:
                     current_commit = local_repo.head.commit.hexsha
@@ -269,6 +336,7 @@ def run_agent_for_repo(
                 lint_cmd = get_lint_cmd(
                     repo_name, agent_config.use_lint_info, commit0_config_file
                 )
+                pre_sha = local_repo.head.commit.hexsha
                 _ = agent.run(
                     iter_message,
                     "",
@@ -280,6 +348,29 @@ def run_agent_for_repo(
                     current_module=file_name,
                 )
                 _mark_module_done(file_log_dir)
+
+                if thinking_capture is not None:
+                    post_sha = local_repo.head.commit.hexsha
+                    module_patch = (
+                        local_repo.git.diff(pre_sha, post_sha, "--", ".")
+                        if pre_sha != post_sha
+                        else ""
+                    )
+                    module_turns = thinking_capture.get_module_turns(file_name)
+                    if module_turns:
+                        write_module_output_json(
+                            output_dir=str(file_log_dir),
+                            module_turns=module_turns,
+                            module=file_name,
+                            instance_id=f"{instance_id}__{file_name}"
+                            if instance_id
+                            else file_name,
+                            git_patch=module_patch,
+                            instruction=iter_message,
+                            metadata=metadata,
+                            metrics=thinking_capture.get_module_metrics(file_name),
+                            stage="draft",
+                        )
 
                 if agent_config.record_test_for_each_commit:
                     current_commit = local_repo.head.commit.hexsha
@@ -296,38 +387,12 @@ def run_agent_for_repo(
 
     if thinking_capture is not None:
         try:
-            from agent.output_writer import (
-                extract_git_patch,
-                build_metadata,
-            )
-            from agent.openhands_formatter import write_openhands_jsonl
             from agent.trajectory_writer import write_trajectory_md
 
-            commit0_config = read_commit0_config_file(commit0_config_file)
-            git_patch = extract_git_patch(repo_path, example["base_commit"])
-
-            instance_id = (
-                example["instance_id"]
-                if "instance_id" in example.keys()
-                else f"commit-0/{repo_name}"
-            )
-            metadata = build_metadata(
-                model_name=agent_config.model_name,
-                dataset_path=commit0_config.get("dataset_name", ""),
-                max_iterations=agent_config.max_iteration,
-            )
-
-            stage_runtime = time.monotonic() - stage_start_time
-
-            write_openhands_jsonl(
-                output_path=str(experiment_log_dir / "output.jsonl"),
-                turns=thinking_capture.turns,
-                instance_id=instance_id,
-                git_patch=git_patch,
-                instruction=message if message else "",
-                metadata=metadata,
-                metrics=thinking_capture.get_metrics(),
-                stage_runtime_seconds=stage_runtime,
+            logger.info(
+                "Per-module output written: %d turns across %d modules",
+                len(thinking_capture.turns),
+                len(set(t.module for t in thinking_capture.turns)),
             )
 
             if getattr(agent_config, "trajectory_md", True):

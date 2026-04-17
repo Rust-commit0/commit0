@@ -135,6 +135,25 @@ class ThinkingCapture:
             for t in self.turns
         ]
 
+    def get_module_turns(self, module: str) -> list[Turn]:
+        """Return turns belonging to a specific module."""
+        return [t for t in self.turns if t.module == module]
+
+    def get_module_metrics(self, module: str) -> dict:
+        """Aggregate metrics for a single module."""
+        module_turns = [
+            t for t in self.turns if t.role == "assistant" and t.module == module
+        ]
+        return {
+            "total_cost": sum(t.cost for t in module_turns),
+            "total_prompt_tokens": sum(t.prompt_tokens for t in module_turns),
+            "total_completion_tokens": sum(t.completion_tokens for t in module_turns),
+            "total_thinking_tokens": sum(t.thinking_tokens for t in module_turns),
+            "cache_hit_tokens": sum(t.cache_hit_tokens for t in module_turns),
+            "cache_write_tokens": sum(t.cache_write_tokens for t in module_turns),
+            "num_turns": len(module_turns),
+        }
+
     def get_metrics(self) -> dict:
         """Aggregate metrics across all turns."""
         total_cost = sum(t.cost for t in self.turns if t.role == "assistant")

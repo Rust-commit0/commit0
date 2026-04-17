@@ -447,22 +447,6 @@ def make_finish_event(
     }
 
 
-def _derive_system_prompt(first_turn: "Turn") -> str:
-    stage_desc = {
-        "draft": "Implement the module from scratch based on the specification.",
-        "lint": "Fix lint errors in the module.",
-        "test": "Fix test failures in the module.",
-    }
-    desc = stage_desc.get(first_turn.stage, "Complete the coding task.")
-    return (
-        f"Act as an expert software developer.\n"
-        f"Always use best practices when coding.\n"
-        f"Task: {desc}\n"
-        f"Module: {first_turn.module}\n"
-        f"Stage: {first_turn.stage}"
-    )
-
-
 def _convert_assistant_turn(turn: "Turn", base_timestamp: str) -> list[dict]:
     reasoning, edits = parse_edit_blocks(turn.content)
     thinking_blocks = _make_thinking_blocks(turn.thinking)
@@ -533,7 +517,7 @@ def turns_to_openhands_events(
             modules_seen.add(module)
             current_module = module
 
-            prompt = system_prompt or _derive_system_prompt(turn)
+            prompt = system_prompt or f"Stage: {turn.stage}, Module: {turn.module}"
             events.append(
                 make_system_prompt_event(
                     system_prompt=prompt,
@@ -646,4 +630,52 @@ def write_openhands_jsonl(
             f.write(json.dumps(record, default=str) + "\n")
     except OSError as e:
         logger.error("Failed to write OpenHands JSONL to %s: %s", path, e)
+        raise
+
+
+def write_module_output_json(
+    output_dir: str,
+    module_turns: list["Turn"],
+    module: str,
+    instance_id: str,
+    git_patch: str,
+    instruction: str,
+    metadata: dict,
+    metrics: dict,
+    stage: str,
+    system_prompt: str | None = None,
+    error: str | None = None,
+    stage_runtime_seconds: float = 0.0,
+) -> None:
+    from pathlib import Path
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    events = turns_to_openhands_events(module_turns, system_prompt=system_prompt)
+    tool_counts = _count_tool_calls(events)
+
+    record = {
+        "module": module,
+        "instance_id": instance_id,
+        "stage": stage,
+        "instruction": instruction,
+        "test_result": {"git_patch": git_patch},
+        "metadata": metadata,
+        "history": events,
+        "metrics": {
+            **metrics,
+            "stage_runtime_seconds": round(stage_runtime_seconds, 2),
+            "tool_calls": tool_counts,
+            "total_tool_calls": sum(tool_counts.values()),
+        },
+        "error": error,
+    }
+
+    output_path = out_dir / "output.json"
+    try:
+        with open(output_path, "w") as f:
+            json.dump(record, f, indent=2, default=str)
+    except OSError as e:
+        logger.error("Failed to write module output to %s: %s", output_path, e)
         raise

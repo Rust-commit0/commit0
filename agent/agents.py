@@ -539,6 +539,63 @@ class AiderAgents(Agents):
                     coder, thinking_capture, current_stage, current_module
                 )
 
+            if thinking_capture is not None:
+                _prev_cmd_test = coder.commands.cmd_test
+
+                def _capturing_cmd_test(test_cmd_arg: str) -> str:
+                    result = _prev_cmd_test(test_cmd_arg)
+                    thinking_capture.add_user_turn(
+                        content=f"[tool:cmd_test] {test_cmd_arg}",
+                        stage=current_stage,
+                        module=current_module,
+                        turn_number=len(thinking_capture.turns),
+                    )
+                    if result:
+                        thinking_capture.add_assistant_turn(
+                            content=f"[tool:cmd_test:result] {result[:2000]}",
+                            thinking=None,
+                            thinking_tokens=0,
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            cache_hit_tokens=0,
+                            cache_write_tokens=0,
+                            cost=0.0,
+                            stage=current_stage,
+                            module=current_module,
+                            turn_number=len(thinking_capture.turns),
+                        )
+                    return result
+
+                coder.commands.cmd_test = _capturing_cmd_test
+
+                _prev_cmd_lint = coder.commands.cmd_lint
+
+                def _capturing_cmd_lint(**kwargs: Any) -> str:
+                    result = _prev_cmd_lint(**kwargs)
+                    thinking_capture.add_user_turn(
+                        content=f"[tool:cmd_lint] {kwargs}",
+                        stage=current_stage,
+                        module=current_module,
+                        turn_number=len(thinking_capture.turns),
+                    )
+                    if result:
+                        thinking_capture.add_assistant_turn(
+                            content=f"[tool:cmd_lint:result] {result[:2000]}",
+                            thinking=None,
+                            thinking_tokens=0,
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            cache_hit_tokens=0,
+                            cache_write_tokens=0,
+                            cost=0.0,
+                            stage=current_stage,
+                            module=current_module,
+                            turn_number=len(thinking_capture.turns),
+                        )
+                    return result
+
+                coder.commands.cmd_lint = _capturing_cmd_lint
+
             # Run the agent
             if test_first:
                 test_errors = coder.commands.cmd_test(test_cmd)

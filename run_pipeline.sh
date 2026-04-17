@@ -1428,26 +1428,6 @@ for r in sorted(SPLIT.get('${REPO_SPLIT}', [])):
 # All per-sample pipeline result files, collected for pass@k aggregation
 declare -a SAMPLE_RESULT_FILES=()
 
-merge_thinking_outputs() {
-    local unified="${BASE_DIR}/output.jsonl"
-    local found=0
-
-    > "$unified"
-
-    for stage_dir in "${LOG_BASE}/stage1_draft" "${LOG_BASE}/stage2_lint" "${LOG_BASE}/stage3_tests"; do
-        local stage_output
-        stage_output=$(find "$stage_dir" -name "output.jsonl" -type f 2>/dev/null | head -1)
-        if [[ -n "$stage_output" ]] && [[ -f "$stage_output" ]]; then
-            cat "$stage_output" >> "$unified"
-            found=$((found + 1))
-        fi
-    done
-
-    if [[ "$found" -gt 0 ]]; then
-        log "  Merged ${found} stage output(s) → ${unified}"
-    fi
-}
-
 run_single_sample() {
     local sample_idx="$1"
 
@@ -1578,7 +1558,6 @@ run_single_sample() {
 
     print_summary_table
     save_results
-    merge_thinking_outputs
     log "run_${sample_idx} results saved to: ${PIPELINE_LOG}"
 
     SAMPLE_RESULT_FILES+=("$PIPELINE_LOG")
