@@ -9,7 +9,7 @@ from aider.io import InputOutput
 import re
 import os
 from typing import Any, Optional
-from agent.thinking_capture import ThinkingCapture
+from agent.thinking_capture import ThinkingCapture, SummarizerCost
 from agent.agent_utils import summarize_test_output
 
 _logger = logging.getLogger(__name__)
@@ -52,8 +52,8 @@ BEDROCK_REGION_MODEL_PRICING = {
         "supports_vision": False,
     },
     "amazon.nova-lite-v1:0": {
-        "input_cost_per_token": 6e-08,
-        "output_cost_per_token": 2.4e-07,
+        "input_cost_per_token": 3e-07,
+        "output_cost_per_token": 2.5e-06,
         "max_input_tokens": 1000000,
         "max_output_tokens": 64000,
         "max_tokens": 64000,
@@ -231,6 +231,7 @@ class AiderReturn(AgentReturn):
     def __init__(self, log_file: Path):
         super().__init__(log_file)
         self.last_cost = self.get_money_cost()
+        self.test_summarizer_cost: float = 0.0
 
     def get_money_cost(self) -> float:
         """Get accumulated money cost from log file"""
@@ -510,6 +511,8 @@ class AiderAgents(Agents):
             coder.max_reflections = self.max_iteration
             coder.stream = True
 
+            _test_summarizer_costs: list[SummarizerCost] = []
+
             if max_test_output_length > 0:
                 _original_cmd_test = coder.commands.cmd_test
                 _max_len = max_test_output_length
@@ -519,12 +522,14 @@ class AiderAgents(Agents):
                 def _wrapped_cmd_test(test_cmd_arg: str) -> str:
                     raw = _original_cmd_test(test_cmd_arg)
                     if raw and len(raw) > _max_len:
-                        return summarize_test_output(
+                        result, costs = summarize_test_output(
                             raw,
                             max_length=_max_len,
                             model=_model,
                             max_tokens=_max_tok,
                         )
+                        _test_summarizer_costs.extend(costs)
+                        return result
                     return raw
 
                 coder.commands.cmd_test = _wrapped_cmd_test
@@ -577,4 +582,11 @@ class AiderAgents(Agents):
             sys.stdout = _saved_stdout
             sys.stderr = _saved_stderr
 
-        return AiderReturn(log_file)
+        agent_return = AiderReturn(log_file)
+        agent_return.test_summarizer_cost = sum(c.cost for c in _test_summarizer_costs)
+
+        if thinking_capture is not None:
+            for c in _test_summarizer_costs:
+                thinking_capture.summarizer_costs.add(c)
+
+        return agent_return

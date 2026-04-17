@@ -194,7 +194,9 @@ def run_agent_for_repo(
                 lint_cmd = get_lint_cmd(
                     repo_name, agent_config.use_lint_info, commit0_config_file
                 )
-                message = get_message(agent_config, repo_path, test_files=[test_file])
+                message, spec_costs = get_message(
+                    agent_config, repo_path, test_files=[test_file]
+                )
 
                 # display the test file to terminal
                 agent_return = agent.run(
@@ -213,11 +215,18 @@ def run_agent_for_repo(
                         branch, backend, commit0_config_file
                     )
 
+                summarizer_cost = sum(c.cost for c in spec_costs) + getattr(
+                    agent_return, "test_summarizer_cost", 0.0
+                )
                 # after running the agent, update the money display
                 update_queue.put(
                     (
                         "update_money_display",
-                        (repo_name, test_file, agent_return.last_cost),
+                        (
+                            repo_name,
+                            test_file,
+                            agent_return.last_cost + summarizer_cost,
+                        ),
                     )
                 )
         elif agent_config.run_entire_dir_lint:
@@ -255,9 +264,13 @@ def run_agent_for_repo(
                 )
         else:
             # when unit test feedback is not available, iterate over target files to edit
-            message = get_message(agent_config, repo_path, test_files=test_files)
+            message, spec_costs = get_message(
+                agent_config, repo_path, test_files=test_files
+            )
+            spec_summarizer_cost = sum(c.cost for c in spec_costs)
 
             update_queue.put(("start_repo", (repo_name, len(target_edit_files))))
+            spec_cost_reported = False
             for f in target_edit_files:
                 update_queue.put(("set_current_file", (repo_name, f)))
                 if agent_config.add_import_module_to_context:
@@ -275,10 +288,15 @@ def run_agent_for_repo(
                         branch, backend, commit0_config_file
                     )
 
+                # Add spec summarizer cost only once (first file), not per-file
+                file_cost = agent_return.last_cost
+                if not spec_cost_reported:
+                    file_cost += spec_summarizer_cost
+                    spec_cost_reported = True
                 update_queue.put(
                     (
                         "update_money_display",
-                        (repo_name, file_name, agent_return.last_cost),
+                        (repo_name, file_name, file_cost),
                     )
                 )
     if agent_config.record_test_for_each_commit:

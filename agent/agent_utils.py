@@ -18,6 +18,7 @@ from graphlib import TopologicalSorter, CycleError
 import yaml
 
 from agent.class_types import AgentConfig
+from agent.thinking_capture import SummarizerCost
 
 logger = logging.getLogger(__name__)
 
@@ -437,8 +438,9 @@ def get_message(
     agent_config: AgentConfig,
     repo_path: str,
     test_files: list[str] | None = None,
-) -> str:
-    """Get the message to Aider."""
+) -> tuple[str, list[SummarizerCost]]:
+    """Get the message to Aider. Returns (message, summarizer_costs)."""
+    spec_costs: list[SummarizerCost] = []
     prompt = f"{PROMPT_HEADER}" + agent_config.user_prompt
 
     #    if agent_config.use_unit_tests_info and test_file:
@@ -488,7 +490,7 @@ def get_message(
         if not decompress_failed and spec_pdf_path.exists():
             raw_spec = get_specification(specification_pdf_path=spec_pdf_path)
             if len(raw_spec) > int(agent_config.max_spec_info_length * 1.5):
-                processed_spec = summarize_specification(
+                processed_spec, spec_costs = summarize_specification(
                     spec_text=raw_spec,
                     model=agent_config.model_name,
                     max_tokens=agent_config.spec_summary_max_tokens,
@@ -505,7 +507,7 @@ def get_message(
 
     message_to_agent = prompt + repo_info + unit_tests_info + spec_info
 
-    return message_to_agent
+    return message_to_agent, spec_costs
 
 
 def update_message_with_dependencies(message: str, dependencies: list[str]) -> str:
@@ -534,6 +536,21 @@ def get_specification(specification_pdf_path: Path) -> str:
             page = document.load_page(page_num)  # loads the specified page
             text += page.get_text()  # type: ignore
     return text
+
+
+def _count_tokens(text: str, model: str) -> int:
+    """Count tokens using litellm's tokenizer for the given model."""
+    try:
+        import litellm
+
+        return litellm.token_counter(model=model, text=text)
+    except Exception:
+        logger.warning(
+            "litellm tokenizer unavailable for model '%s', "
+            "falling back to len//4 approximation",
+            model,
+        )
+        return len(text) // 4
 
 
 def _chunk_text(text: str, chunk_size: int) -> list[str]:
@@ -608,12 +625,12 @@ def _summarize_single(
     text: str,
     model: str,
     max_tokens: int,
-    char_budget: int,
+    token_budget: int,
     litellm_module: object,
     system_prompt: Optional[str] = None,
     timeout: float = 120,
-) -> Optional[str]:
-    """Call LLM to summarize a single piece of text. Returns None on failure."""
+) -> tuple[Optional[str], SummarizerCost]:
+    """Call LLM to summarize a single piece of text. Returns (summary, cost_info)."""
     prompt = system_prompt or _SUMMARIZER_SYSTEM_PROMPT
     response = litellm_module.completion(  # type: ignore[union-attr]
         model=model,
@@ -623,8 +640,8 @@ def _summarize_single(
                 "content": (
                     prompt
                     + "\n- Your summary MUST be under "
-                    + str(char_budget)
-                    + " characters."
+                    + str(token_budget)
+                    + " tokens."
                 ),
             },
             {
@@ -637,10 +654,23 @@ def _summarize_single(
         num_retries=3,
         retry_strategy="exponential_backoff_retry",
     )
+
+    cost = SummarizerCost()
+    usage = getattr(response, "usage", None)
+    if usage:
+        cost.prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        cost.completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+    try:
+        import litellm
+
+        cost.cost = litellm.completion_cost(completion_response=response)
+    except Exception:
+        pass
+
     content = response.choices[0].message.content  # type: ignore[union-attr]
     if content:
-        return content.strip()
-    return None
+        return content.strip(), cost
+    return None, cost
 
 
 def summarize_specification(
@@ -650,15 +680,20 @@ def summarize_specification(
     max_char_length: int = 10000,
     timeout: float = 120,
     cache_path: Optional[Path] = None,
-) -> str:
+) -> tuple[str, list[SummarizerCost]]:
     """Summarize specification text using an LLM instead of hard truncation.
 
-    For specs that fit within a single LLM context window (~300K chars),
-    summarizes in one pass. For larger specs, splits into chunks, summarizes
-    each chunk in parallel, then consolidates with a second LLM pass.
-
+    Returns (summary_text, list_of_costs) where costs tracks every LLM call made.
+    For specs that fit within a single LLM context window, summarizes in one pass.
+    For larger specs, splits into chunks, summarizes each in parallel, then consolidates.
     Falls back to truncation if any LLM call fails.
     """
+    all_costs: list[SummarizerCost] = []
+
+    max_token_length = _count_tokens(spec_text[:max_char_length], model)
+    if max_token_length < 1:
+        max_token_length = max_char_length // 4
+
     cache_key = hashlib.sha256(
         (spec_text + model + str(max_char_length)).encode()
     ).hexdigest()
@@ -669,13 +704,14 @@ def summarize_specification(
                 cached = json.loads(cache_path.read_text())
                 if cached.get("hash") == cache_key:
                     logger.info("Spec summary cache hit (%s)", cache_path)
-                    return cached["summary"]
+                    return cached["summary"], all_costs
         except Exception:
             logger.debug("Cache read failed, proceeding with summarization")
 
     import litellm
 
     original_len = len(spec_text)
+    original_tokens = _count_tokens(spec_text, model)
 
     def _write_cache(summary: str) -> None:
         if cache_path is None:
@@ -694,40 +730,44 @@ def summarize_specification(
         except Exception:
             logger.debug("Cache write failed for %s", cache_path)
 
-    # Max chars per chunk — ~300K chars at ~3 chars/token for dense code = ~100K tokens,
-    # leaving ample room for system prompt + output within Sonnet 4.6's 1M context.
-    chunk_max_chars = 300_000
+    # ~100K tokens per chunk, leaving room for system prompt + output
+    chunk_max_tokens = 100_000
+    # Convert to approximate chars for the char-based _chunk_text splitter
+    chunk_max_chars = chunk_max_tokens * 4
 
     try:
-        if len(spec_text) <= chunk_max_chars:
-            summary = _summarize_single(
+        input_tokens = original_tokens
+        if input_tokens <= chunk_max_tokens:
+            summary, cost = _summarize_single(
                 text=spec_text,
                 model=model,
                 max_tokens=max_tokens,
-                char_budget=max_char_length,
+                token_budget=max_token_length,
                 litellm_module=litellm,
                 timeout=timeout,
             )
+            all_costs.append(cost)
             if summary:
                 logger.info(
-                    "Spec summarized (single-pass): %d chars -> %d chars (model=%s)",
+                    "Spec summarized (single-pass): %d chars (%d tokens) -> %d chars (model=%s)",
                     original_len,
+                    original_tokens,
                     len(summary),
                     model,
                 )
                 _write_cache(summary)
-                return summary
+                return summary, all_costs
             logger.warning("Empty summary from %s, falling back to truncation", model)
-            return spec_text[:max_char_length]
+            return spec_text[:max_char_length], all_costs
 
         chunks = _chunk_text(spec_text, chunk_max_chars)
         logger.info(
-            "Spec too large for single pass (%d chars), splitting into %d chunks",
-            original_len,
+            "Spec too large for single pass (%d tokens), splitting into %d chunks",
+            original_tokens,
             len(chunks),
         )
 
-        per_chunk_budget = max_char_length // len(chunks)
+        per_chunk_token_budget = max_token_length // len(chunks)
         chunk_summaries: list[str] = []
 
         max_workers = min(len(chunks), 4)
@@ -738,14 +778,14 @@ def summarize_specification(
                     chunk,
                     model,
                     max_tokens,
-                    per_chunk_budget,
+                    per_chunk_token_budget,
                     litellm,
                     None,
                     timeout,
                 ): i
                 for i, chunk in enumerate(chunks)
             }
-            results: dict[int, Optional[str]] = {}
+            results: dict[int, Optional[tuple[Optional[str], SummarizerCost]]] = {}
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:
@@ -758,8 +798,15 @@ def summarize_specification(
 
         for i in range(len(chunks)):
             r = results.get(i)
-            if r:
-                chunk_summaries.append(r)
+            if r is not None:
+                text_result, chunk_cost = r
+                all_costs.append(chunk_cost)
+                if text_result:
+                    chunk_summaries.append(text_result)
+                else:
+                    logger.warning(
+                        "Chunk %d/%d returned empty, skipping", i + 1, len(chunks)
+                    )
             else:
                 logger.warning(
                     "Chunk %d/%d returned empty, skipping", i + 1, len(chunks)
@@ -767,34 +814,35 @@ def summarize_specification(
 
         if not chunk_summaries:
             logger.warning("All chunk summaries empty, falling back to truncation")
-            return spec_text[:max_char_length]
+            return spec_text[:max_char_length], all_costs
 
         merged = "\n\n".join(chunk_summaries)
-        merged_len = len(merged)
+        merged_tokens = _count_tokens(merged, model)
         logger.info(
-            "Consolidating %d chunk summaries (%d chars total) into final summary",
+            "Consolidating %d chunk summaries (%d tokens total) into final summary",
             len(chunk_summaries),
-            merged_len,
+            merged_tokens,
         )
 
-        if merged_len <= max_char_length:
+        if merged_tokens <= max_token_length:
             logger.info(
-                "Spec summarized (chunked, no consolidation needed): %d chars -> %d chars",
-                original_len,
-                merged_len,
+                "Spec summarized (chunked, no consolidation needed): %d tokens -> %d tokens",
+                original_tokens,
+                merged_tokens,
             )
             _write_cache(merged)
-            return merged
+            return merged, all_costs
 
-        final = _summarize_single(
+        final, consolidation_cost = _summarize_single(
             text=merged,
             model=model,
             max_tokens=max_tokens,
-            char_budget=max_char_length,
+            token_budget=max_token_length,
             litellm_module=litellm,
             system_prompt=_CONSOLIDATION_SYSTEM_PROMPT,
             timeout=timeout,
         )
+        all_costs.append(consolidation_cost)
         if final:
             logger.info(
                 "Spec summarized (chunked+consolidated): %d chars -> %d chars (model=%s)",
@@ -803,16 +851,16 @@ def summarize_specification(
                 model,
             )
             _write_cache(final)
-            return final
+            return final, all_costs
 
         logger.warning("Consolidation returned empty, using merged chunk summaries")
-        return merged
+        return merged, all_costs
 
     except Exception as e:
         logger.warning(
             "Spec summarization failed (%s), falling back to truncation: %s", model, e
         )
-        return spec_text[:max_char_length]
+        return spec_text[:max_char_length], all_costs
 
 
 _TEST_SUMMARIZER_SYSTEM_PROMPT = (
@@ -902,25 +950,36 @@ def summarize_test_output(
     max_length: int = 15000,
     model: str = "",
     max_tokens: int = 4000,
-) -> str:
+) -> tuple[str, list[SummarizerCost]]:
     """Hybrid 3-tier test output summarization.
 
+    Returns (summarized_text, list_of_costs).
     Tier 1: Deterministic pytest parsing (free, instant).
     Tier 2: LLM summarization if Tier 1 exceeds budget.
     Tier 3: Smart truncation fallback.
     """
-    if len(raw_output) <= max_length:
-        return raw_output
+    all_costs: list[SummarizerCost] = []
+
+    max_token_length = (
+        _count_tokens(raw_output[:max_length], model) if model else max_length // 4
+    )
+    if max_token_length < 1:
+        max_token_length = max_length // 4
+
+    raw_tokens = _count_tokens(raw_output, model) if model else len(raw_output) // 4
+    if raw_tokens <= max_token_length:
+        return raw_output, all_costs
 
     # Tier 1: Deterministic parse
     parsed = _parse_pytest_output(raw_output)
-    if len(parsed) <= max_length:
+    parsed_tokens = _count_tokens(parsed, model) if model else len(parsed) // 4
+    if parsed_tokens <= max_token_length:
         logger.info(
-            "Test output summarized (Tier 1 parse): %d -> %d chars",
-            len(raw_output),
-            len(parsed),
+            "Test output summarized (Tier 1 parse): %d -> %d tokens",
+            raw_tokens,
+            parsed_tokens,
         )
-        return parsed
+        return parsed, all_costs
 
     # Tier 2: LLM summarization
     try:
@@ -934,8 +993,8 @@ def summarize_test_output(
                     "content": (
                         _TEST_SUMMARIZER_SYSTEM_PROMPT
                         + "\n- Your summary MUST be under "
-                        + str(max_length)
-                        + " characters."
+                        + str(max_token_length)
+                        + " tokens."
                     ),
                 },
                 {
@@ -945,6 +1004,18 @@ def summarize_test_output(
             ],
             max_tokens=max_tokens,
         )
+
+        cost = SummarizerCost()
+        usage = getattr(response, "usage", None)
+        if usage:
+            cost.prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+            cost.completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+        try:
+            cost.cost = litellm.completion_cost(completion_response=response)
+        except Exception:
+            pass
+        all_costs.append(cost)
+
         content = response.choices[0].message.content  # type: ignore[union-attr]
         if content:
             result = content.strip()
@@ -954,7 +1025,7 @@ def summarize_test_output(
                 len(result),
                 model,
             )
-            return result
+            return result, all_costs
     except Exception:
         logger.warning(
             "LLM test summarization failed, falling back to truncation",
@@ -971,8 +1042,8 @@ def summarize_test_output(
             len(raw_output),
             len(truncated),
         )
-        return truncated
-    return parsed[:max_length]
+        return truncated, all_costs
+    return parsed[:max_length], all_costs
 
 
 def create_branch(repo: git.Repo, branch: str, from_commit: str) -> None:
@@ -1144,7 +1215,6 @@ def read_yaml_config(config_file: str) -> dict:
 def load_agent_config(config_file: str) -> "AgentConfig":
     """Load and validate agent config from YAML file into AgentConfig."""
     import dataclasses
-    from agent.class_types import AgentConfig
 
     config = read_yaml_config(config_file)
 

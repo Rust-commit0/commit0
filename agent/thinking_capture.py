@@ -5,6 +5,45 @@ from typing import Optional
 
 
 @dataclass
+class SummarizerCost:
+    """Cost info from a single summarizer LLM call."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost: float = 0.0
+
+
+@dataclass
+class SummarizerCostTracker:
+    """Accumulates costs from all summarizer LLM calls (spec + test output)."""
+
+    costs: list[SummarizerCost] = field(default_factory=list)
+
+    def add(self, cost: SummarizerCost) -> None:
+        self.costs.append(cost)
+
+    @property
+    def total_cost(self) -> float:
+        return sum(c.cost for c in self.costs)
+
+    @property
+    def total_prompt_tokens(self) -> int:
+        return sum(c.prompt_tokens for c in self.costs)
+
+    @property
+    def total_completion_tokens(self) -> int:
+        return sum(c.completion_tokens for c in self.costs)
+
+    def to_dict(self) -> dict:
+        return {
+            "summarizer_cost": self.total_cost,
+            "summary_input_tokens": self.total_prompt_tokens,
+            "summary_output_tokens": self.total_completion_tokens,
+            "summarizer_call_count": len(self.costs),
+        }
+
+
+@dataclass
 class Turn:
     """A single conversation turn (one user message + one assistant response)."""
 
@@ -27,6 +66,9 @@ class ThinkingCapture:
     """Accumulates turns with thinking across the entire pipeline run."""
 
     turns: list[Turn] = field(default_factory=list)
+    summarizer_costs: SummarizerCostTracker = field(
+        default_factory=SummarizerCostTracker
+    )
 
     def add_user_turn(
         self,
@@ -121,9 +163,12 @@ class ThinkingCapture:
             per_stage[t.stage]["thinking_tokens"] += t.thinking_tokens
 
         return {
-            "total_cost": total_cost,
-            "total_prompt_tokens": total_prompt,
-            "total_completion_tokens": total_completion,
+            "total_cost": total_cost + self.summarizer_costs.total_cost,
+            "total_prompt_tokens": total_prompt
+            + self.summarizer_costs.total_prompt_tokens,
+            "total_completion_tokens": total_completion
+            + self.summarizer_costs.total_completion_tokens,
             "total_thinking_tokens": total_thinking,
             "per_stage": per_stage,
+            **self.summarizer_costs.to_dict(),
         }

@@ -178,7 +178,12 @@ def run_agent_for_repo(
                 lint_cmd = get_lint_cmd(
                     repo_name, agent_config.use_lint_info, commit0_config_file
                 )
-                message = get_message(agent_config, repo_path, test_files=[test_file])
+                message, spec_costs = get_message(
+                    agent_config, repo_path, test_files=[test_file]
+                )
+                if thinking_capture is not None:
+                    for c in spec_costs:
+                        thinking_capture.summarizer_costs.add(c)
 
                 _ = agent.run(
                     "",
@@ -201,7 +206,12 @@ def run_agent_for_repo(
                         branch, backend, commit0_config_file
                     )
         elif agent_config.run_entire_dir_lint:
-            message = get_message(agent_config, repo_path, test_files=test_files)
+            message, spec_costs = get_message(
+                agent_config, repo_path, test_files=test_files
+            )
+            if thinking_capture is not None:
+                for c in spec_costs:
+                    thinking_capture.summarizer_costs.add(c)
             for lint_file in lint_files:
                 lint_file_name = lint_file.replace(".py", "").replace("/", "__")
                 lint_log_dir = experiment_log_dir / lint_file_name
@@ -233,7 +243,12 @@ def run_agent_for_repo(
                         branch, backend, commit0_config_file
                     )
         else:
-            message = get_message(agent_config, repo_path, test_files=test_files)
+            message, spec_costs = get_message(
+                agent_config, repo_path, test_files=test_files
+            )
+            if thinking_capture is not None:
+                for c in spec_costs:
+                    thinking_capture.summarizer_costs.add(c)
 
             for f in target_edit_files:
                 file_name = f.replace(".py", "").replace("/", "__")
