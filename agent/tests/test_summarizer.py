@@ -246,12 +246,13 @@ class TestSummarizeSpecificationParams:
 
 
 class TestSummarizeSpecificationDefaults:
-    def test_default_model_is_sonnet(self):
+    def test_model_is_required_no_default(self):
         import inspect
 
-        default = inspect.signature(summarize_specification).parameters["model"].default
-        assert "claude-sonnet-4-6" in default
-        assert "bedrock/" in default
+        param = inspect.signature(summarize_specification).parameters["model"]
+        assert param.default is inspect.Parameter.empty, (
+            "model should be a required parameter (no default) — it must be passed from pipeline model_name"
+        )
 
     def test_default_max_tokens(self):
         import inspect
