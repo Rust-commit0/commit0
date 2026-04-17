@@ -403,6 +403,20 @@ def _apply_thinking_capture_patches(
     coder.show_usage_report = patched_show_usage_report
     coder.clone = patched_clone
 
+    _original_apply_updates = coder.apply_updates
+
+    def patched_apply_updates() -> set:
+        edited = _original_apply_updates()
+        reflected = getattr(coder, "reflected_message", None)
+        if reflected and thinking_capture.turns:
+            for turn in reversed(thinking_capture.turns):
+                if turn.role == "assistant" and turn.module == current_module:
+                    turn.edit_error = reflected
+                    break
+        return edited
+
+    coder.apply_updates = patched_apply_updates
+
 
 class AiderAgents(Agents):
     def __init__(
@@ -498,6 +512,7 @@ class AiderAgents(Agents):
                 input_history_file=input_history_file,
                 chat_history_file=chat_history_file,
             )
+            io.llm_history_file = str(log_dir / "llm_history.txt")
             coder = Coder.create(
                 main_model=self.model,
                 fnames=fnames,
@@ -538,6 +553,16 @@ class AiderAgents(Agents):
                 _apply_thinking_capture_patches(
                     coder, thinking_capture, current_stage, current_module
                 )
+
+            if thinking_capture is not None and coder.abs_fnames:
+                rel_files = sorted(coder.get_inchat_relative_files())
+                if rel_files:
+                    thinking_capture.add_user_turn(
+                        content="[files:read]\n" + "\n".join(rel_files),
+                        stage=current_stage,
+                        module=current_module,
+                        turn_number=0,
+                    )
 
             if thinking_capture is not None:
                 _prev_cmd_test = coder.commands.cmd_test

@@ -205,6 +205,7 @@ def run_agent_for_repo(
                         thinking_capture.summarizer_costs.add(c)
 
                 pre_sha = local_repo.head.commit.hexsha
+                module_start = time.time()
                 _ = agent.run(
                     "",
                     test_cmd,
@@ -218,6 +219,7 @@ def run_agent_for_repo(
                     max_test_output_length=agent_config.max_test_output_length,
                     spec_summary_max_tokens=agent_config.spec_summary_max_tokens,
                 )
+                module_elapsed = time.time() - module_start
                 _mark_module_done(test_log_dir)
 
                 if thinking_capture is not None:
@@ -241,6 +243,7 @@ def run_agent_for_repo(
                             metadata=metadata,
                             metrics=thinking_capture.get_module_metrics(test_file_name),
                             stage="test",
+                            stage_runtime_seconds=module_elapsed,
                         )
 
                 if agent_config.record_test_for_each_commit:
@@ -268,6 +271,7 @@ def run_agent_for_repo(
                 )
 
                 pre_sha = local_repo.head.commit.hexsha
+                module_start = time.time()
                 _ = agent.run(
                     "",
                     "",
@@ -279,6 +283,7 @@ def run_agent_for_repo(
                     current_stage="lint",
                     current_module=lint_file_name,
                 )
+                module_elapsed = time.time() - module_start
                 _mark_module_done(lint_log_dir)
 
                 if thinking_capture is not None:
@@ -302,6 +307,7 @@ def run_agent_for_repo(
                             metadata=metadata,
                             metrics=thinking_capture.get_module_metrics(lint_file_name),
                             stage="lint",
+                            stage_runtime_seconds=module_elapsed,
                         )
 
                 if agent_config.record_test_for_each_commit:
@@ -337,6 +343,7 @@ def run_agent_for_repo(
                     repo_name, agent_config.use_lint_info, commit0_config_file
                 )
                 pre_sha = local_repo.head.commit.hexsha
+                module_start = time.time()
                 _ = agent.run(
                     iter_message,
                     "",
@@ -347,6 +354,7 @@ def run_agent_for_repo(
                     current_stage="draft",
                     current_module=file_name,
                 )
+                module_elapsed = time.time() - module_start
                 _mark_module_done(file_log_dir)
 
                 if thinking_capture is not None:
@@ -370,6 +378,7 @@ def run_agent_for_repo(
                             metadata=metadata,
                             metrics=thinking_capture.get_module_metrics(file_name),
                             stage="draft",
+                            stage_runtime_seconds=module_elapsed,
                         )
 
                 if agent_config.record_test_for_each_commit:

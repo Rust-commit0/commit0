@@ -59,6 +59,7 @@ class Turn:
     stage: str = ""  # "draft", "lint", or "test"
     module: str = ""  # e.g., "src__itsdangerous___json"
     turn_number: int = 0
+    edit_error: str | None = None
 
 
 @dataclass

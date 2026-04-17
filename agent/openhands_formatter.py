@@ -153,6 +153,13 @@ def _parse_fenced_block(
         if stripped.startswith("```"):
             return detected_file, edits, i
 
+        # Detect filename lines inside fenced blocks (e.g., "pipfile/api.py")
+        fname_match = _FILENAME_RE.match(stripped)
+        if fname_match and _has_search_block_ahead(lines, i + 1):
+            detected_file = fname_match.group(1).strip()
+            i += 1
+            continue
+
         if stripped == _SEARCH_MARKER:
             old_lines: list[str] = []
             new_lines: list[str] = []
@@ -447,6 +454,69 @@ def make_finish_event(
     }
 
 
+def _convert_file_read_turn(turn: "Turn", base_timestamp: str) -> list[dict]:
+    lines = turn.content.split("\n", 1)
+    file_list = lines[1].strip().split("\n") if len(lines) > 1 else []
+    events: list[dict] = []
+    for idx, fpath in enumerate(file_list):
+        fpath = fpath.strip()
+        if not fpath:
+            continue
+        tool_call_id = _make_id()
+        ts = _offset_timestamp(base_timestamp, offset_ms=idx * 50)
+        arguments = json.dumps({"command": "view", "path": fpath})
+        events.append(
+            {
+                "id": _make_id(),
+                "timestamp": ts,
+                "source": "agent",
+                "thought": [{"type": "text", "text": f"Reading file: {fpath}"}]
+                if idx == 0
+                else [],
+                "thinking_blocks": [],
+                "action": {
+                    "command": "view",
+                    "path": fpath,
+                    "kind": "FileEditorAction",
+                },
+                "tool_name": "file_editor",
+                "tool_call_id": tool_call_id,
+                "tool_call": {
+                    "id": tool_call_id,
+                    "name": "file_editor",
+                    "arguments": arguments,
+                    "origin": "completion",
+                },
+                "llm_response_id": None,
+                "security_risk": "UNKNOWN",
+                "summary": f"View {fpath}",
+                "kind": "ActionEvent",
+            }
+        )
+        events.append(
+            {
+                "id": _make_id(),
+                "timestamp": _offset_timestamp(ts, offset_ms=10),
+                "source": "environment",
+                "tool_name": "file_editor",
+                "tool_call_id": tool_call_id,
+                "observation": {
+                    "content": [
+                        {"type": "text", "text": f"File {fpath} loaded into context."}
+                    ],
+                    "is_error": False,
+                    "command": "view",
+                    "path": fpath,
+                    "prev_exist": True,
+                    "kind": "FileEditorObservation",
+                },
+                "action_id": tool_call_id,
+                "kind": "ObservationEvent",
+            }
+        )
+    return events
+
+
 def _convert_assistant_turn(turn: "Turn", base_timestamp: str) -> list[dict]:
     reasoning, edits = parse_edit_blocks(turn.content)
     thinking_blocks = _make_thinking_blocks(turn.thinking)
@@ -484,6 +554,8 @@ def _convert_assistant_turn(turn: "Turn", base_timestamp: str) -> list[dict]:
             make_observation_event(
                 edit=edit,
                 tool_call_id=tool_call_id,
+                is_error=bool(turn.edit_error),
+                error_message=turn.edit_error,
                 timestamp=_offset_timestamp(ts, offset_ms=10),
             )
         )
@@ -528,13 +600,16 @@ def turns_to_openhands_events(
         ts_base = _make_timestamp_from_turn(turn)
 
         if turn.role == "user":
-            events.append(
-                make_message_event(
-                    content=turn.content,
-                    source="user",
-                    timestamp=ts_base,
+            if turn.content.startswith("[files:read]"):
+                events.extend(_convert_file_read_turn(turn, ts_base))
+            else:
+                events.append(
+                    make_message_event(
+                        content=turn.content,
+                        source="user",
+                        timestamp=ts_base,
+                    )
                 )
-            )
         elif turn.role == "assistant":
             events.extend(_convert_assistant_turn(turn, ts_base))
 
