@@ -26,7 +26,7 @@ class Colors:
     RED = "\033[91m"
     YELLOW = "\033[93m"
     CYAN = "\033[96m"
-    ORANGE = "\033[95m"
+    MAGENTA = "\033[95m"
 
 
 def check_aider_path() -> None:
@@ -74,7 +74,7 @@ def highlight(text: str, color: str) -> str:
 def config(
     agent_name: str = typer.Argument(
         ...,
-        help=f"Agent to use, we only support {highlight('aider', Colors.ORANGE)} for now",
+        help=f"Agent to use, we only support {highlight('aider', Colors.MAGENTA)} for now",
     ),
     model_name: str = typer.Option(
         "claude-3-5-sonnet-20240620",

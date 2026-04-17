@@ -255,7 +255,7 @@ class TestRepoMatching:
             mock_make_spec.return_value = None
             from commit0.harness.run_pytest_ids import main
 
-            with pytest.raises(AssertionError, match="No spec available"):
+            with pytest.raises(ValueError, match="No spec available"):
                 main(**_default_kwargs(repo_or_repo_dir="/repos/test-repo"))
 
 
@@ -1298,7 +1298,7 @@ class TestExitCode:
     @patch(f"{MODULE}.setup_logger")
     @patch(f"{MODULE}.make_spec")
     @patch(f"{MODULE}.load_dataset_from_config")
-    def test_reads_pytest_exit_code_and_calls_sys_exit(
+    def test_reads_pytest_exit_code_and_raises_on_failure(
         self,
         mock_load,
         mock_make_spec,
@@ -1327,9 +1327,8 @@ class TestExitCode:
         with patch(f"{MODULE}.RUN_PYTEST_LOG_DIR", tmp_path):
             from commit0.harness.run_pytest_ids import main
 
-            main(**_default_kwargs(branch="reference"))
-
-        mock_sys.exit.assert_called_once_with(5)
+            with pytest.raises(RuntimeError, match="Pytest exited with code 5"):
+                main(**_default_kwargs(branch="reference"))
 
     @patch(f"{MODULE}.sys")
     @patch(f"{MODULE}.Docker")
@@ -1340,7 +1339,7 @@ class TestExitCode:
     @patch(f"{MODULE}.setup_logger")
     @patch(f"{MODULE}.make_spec")
     @patch(f"{MODULE}.load_dataset_from_config")
-    def test_exit_code_zero_with_trailing_newline(
+    def test_exit_code_zero_completes_normally(
         self,
         mock_load,
         mock_make_spec,
@@ -1370,8 +1369,6 @@ class TestExitCode:
             from commit0.harness.run_pytest_ids import main
 
             main(**_default_kwargs(branch="reference"))
-
-        mock_sys.exit.assert_called_once_with(0)
 
 
 class TestGeneralException:

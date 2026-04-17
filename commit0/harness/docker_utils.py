@@ -3,7 +3,9 @@ from __future__ import annotations
 import docker
 import logging
 import os
-import signal
+import platform as platform_mod
+import secrets
+
 import tarfile
 import threading
 import time
@@ -15,7 +17,16 @@ from typing import Optional, List
 import docker.errors
 from docker.models.containers import Container
 
-HEREDOC_DELIMITER = "EOF_1399519320"  # different from dataset HEREDOC_DELIMITERs!
+HEREDOC_DELIMITER = "EOF_1399519320"
+
+
+def get_docker_platform() -> str:
+    """Return the Docker platform string for the current machine architecture."""
+    machine = platform_mod.machine()
+    arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(
+        machine, "amd64"
+    )
+    return f"linux/{arch}"
 
 
 def copy_to_container(container: Container, src: Path, dst: Path) -> None:
@@ -90,9 +101,11 @@ def copy_from_container(container: Container, src: Path, dst: Path) -> None:
             abs_directory = os.path.abspath(directory)
             abs_target = os.path.abspath(target)
 
-            prefix = os.path.commonprefix([abs_directory, abs_target])
-
-            return prefix == abs_directory
+            try:
+                common = os.path.commonpath([abs_directory, abs_target])
+                return common == abs_directory
+            except ValueError:
+                return False
 
         def safe_extract(
             tar: tarfile.TarFile,
@@ -118,8 +131,8 @@ def copy_from_container(container: Container, src: Path, dst: Path) -> None:
 
 def write_to_container(container: Container, data: str, dst: Path) -> None:
     """Write a string to a file in a docker container"""
-    # echo with heredoc to file
-    command = f"cat <<'{HEREDOC_DELIMITER}' > {dst}\n{data}\n{HEREDOC_DELIMITER}"
+    heredoc_delim = f"EOF_{secrets.token_hex(8)}"
+    command = f"cat <<'{heredoc_delim}' > {dst}\n{data}\n{heredoc_delim}"
     container.exec_run(command)
 
 
@@ -153,26 +166,15 @@ def cleanup_container(
             f"Failed to stop container {container.name}: {e}. Trying to forcefully kill..."
         )
         try:
-            # Get the PID of the container
-            assert container_id is not None
-            container_info = client.api.inspect_container(container_id)
-            pid = container_info["State"].get("Pid", 0)
-
-            # If container PID found, forcefully kill the container
-            if pid > 0:
-                logger.info(
-                    f"Forcefully killing container {container.name} with PID {pid}..."
-                )
-                os.kill(pid, signal.SIGKILL)
-            else:
-                logger.error(
-                    f"PID for container {container.name}: {pid} - not killing."
-                )
+            logger.info(
+                f"Forcefully killing container {container.name} via Docker API..."
+            )
+            container.kill(signal="SIGKILL")
         except Exception as e2:
             raise Exception(
                 f"Failed to forcefully kill container {container.name}: {e2}\n"
                 f"{traceback.format_exc()}"
-            )
+            ) from e2
 
     # Attempt to remove the container
     try:
@@ -183,7 +185,7 @@ def cleanup_container(
         raise Exception(
             f"Failed to remove container {container.name}: {e}\n"
             f"{traceback.format_exc()}"
-        )
+        ) from e
 
 
 def image_exists_locally(
@@ -237,10 +239,10 @@ def pull_image_from_docker_hub(
     try:
         client.images.pull(image_name, tag=tag)
         logger.info(f"Loaded {image_name}:{tag} from Docker Hub.")
-    except docker.errors.ImageNotFound:
-        raise Exception(f"Image {image_name}:{tag} not found on Docker Hub.")
+    except docker.errors.ImageNotFound as e:
+        raise Exception(f"Image {image_name}:{tag} not found on Docker Hub.") from e
     except docker.errors.APIError as e:
-        raise Exception(f"Error pulling image: {e}")
+        raise Exception(f"Error pulling image: {e}") from e
 
 
 def create_container(
@@ -276,7 +278,7 @@ def create_container(
     Exception: For other general errors.
 
     """
-    image, tag = image_name.split(":")
+    image, tag = image_name.rsplit(":", 1)
     if not image_exists_locally(client, image, tag, logger):
         pull_image_from_docker_hub(client, image, tag, logger)
 
@@ -317,21 +319,24 @@ def exec_run_with_timeout(
     """
     # Local variables to store the result of executing the command
     exec_result = ""
+    _chunks: list[str] = []
     exec_id = None
     timed_out = False
 
     # Wrapper function to run the command
     def run_command() -> None:
-        nonlocal exec_result, exec_id
+        nonlocal exec_id
         try:
             exec_id = container.client.api.exec_create(container=container.id, cmd=cmd)[  # pyright: ignore
                 "Id"
             ]
             exec_stream = container.client.api.exec_start(exec_id=exec_id, stream=True)  # pyright: ignore
             for chunk in exec_stream:
-                exec_result += chunk.decode("utf-8", errors="replace")
+                _chunks.append(chunk.decode("utf-8", errors="replace"))
         except docker.errors.APIError as e:
-            raise Exception(f"Container {container.id} cannot execute {cmd}.\n{str(e)}")
+            raise Exception(
+                f"Container {container.id} cannot execute {cmd}.\n{str(e)}"
+            ) from e
 
     # Start the command in a separate thread
     thread = threading.Thread(target=run_command)
@@ -346,6 +351,7 @@ def exec_run_with_timeout(
             container.exec_run(f"kill -TERM {exec_pid}", detach=True)
         timed_out = True
     end_time = time.time()
+    exec_result = "".join(_chunks)
     return exec_result, timed_out, end_time - start_time
 
 

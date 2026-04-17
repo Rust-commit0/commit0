@@ -57,7 +57,7 @@ def run_eval_after_each_commit(
     eval_cmd = f"{sys.executable} -m commit0 evaluate --branch {branch} --backend {backend} --commit0-config-file {commit0_config_file} --timeout 100"
     try:
         result = subprocess.run(
-            eval_cmd, shell=True, capture_output=True, text=True, check=True
+            eval_cmd.split(), capture_output=True, text=True, check=True
         )
         return result.stdout
     except subprocess.CalledProcessError as e:
@@ -102,7 +102,7 @@ def run_agent_for_repo(
         )
         raise Exception(
             f"{repo_path} is not a git repo. Check if base_dir is correctly specified."
-        )
+        ) from None
 
     if agent_config.agent_name == "aider":
         agent = AiderAgents(

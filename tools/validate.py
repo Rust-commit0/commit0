@@ -31,16 +31,9 @@ import subprocess
 import sys
 import tempfile
 import time
-import platform as platform_mod
 from pathlib import Path
 
-
-def _get_docker_platform() -> str:
-    machine = platform_mod.machine()
-    arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(
-        machine, "amd64"
-    )
-    return f"linux/{arch}"
+from commit0.harness.docker_utils import get_docker_platform
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -479,6 +472,11 @@ def run_tests_in_docker(
 
     # Build install + test script
     install_script = _build_install_script(repo_dir)
+    _SHELL_METACHAR_RE = re.compile(r"[;|`$&<>]")
+    if _SHELL_METACHAR_RE.search(install_script):
+        logger.warning(
+            "install_script contains shell metacharacters: %s", install_script
+        )
 
     script = f"""#!/bin/bash
 set -e
@@ -515,7 +513,7 @@ cat /tmp/coverage.json 2>/dev/null || echo '{{}}'
                 "run",
                 "--rm",
                 "--platform",
-                _get_docker_platform(),
+                get_docker_platform(),
                 "--name",
                 container_name,
                 "-v",
@@ -570,6 +568,7 @@ cat /tmp/coverage.json 2>/dev/null || echo '{{}}'
         subprocess.run(["docker", "kill", container_name], capture_output=True)
         subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
     except Exception as e:
+        logger.warning("Non-critical failure during Docker validation: %s", e)
         result["docker_error"] = str(e)[:500]
 
     return result

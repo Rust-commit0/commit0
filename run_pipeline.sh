@@ -167,6 +167,16 @@ resolve_model() {
             MODEL_SHORT="minimax-m2.5"
             CACHE_PROMPTS="false"
             ;;
+        nova-premier)
+            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/td6kwwwp7q0e"
+            MODEL_SHORT="nova-premier"
+            CACHE_PROMPTS="false"
+            ;;
+        nova-lite)
+            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/cddwmu6axlfp"
+            MODEL_SHORT="nova-2-lite"
+            CACHE_PROMPTS="false"
+            ;;
         gpt54)
             MODEL_NAME="openai/gpt-5.4"
             MODEL_SHORT="gpt-5.4"
@@ -1343,86 +1353,6 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit' INT TERM
-
-# ============================================================
-# Spec Doc Provisioning
-# ============================================================
-
-ensure_spec_docs() {
-    if [[ "$USE_SPEC_INFO" != "true" ]]; then
-        log "  Spec docs: DISABLED (--no-spec-info)"
-        return 0
-    fi
-
-    log "Ensuring spec docs are available for all repos..."
-
-    local ds_path
-    ds_path="$(cd "$(dirname "$DATASET_FILE")" && pwd)/$(basename "$DATASET_FILE")"
-
-    "$VENV_PYTHON" -c "
-import json, os, shutil, sys
-from pathlib import Path
-
-ds = json.loads(Path('${ds_path}').read_text())
-if isinstance(ds, dict) and 'data' in ds:
-    ds = ds['data']
-
-repo_base = '${REPO_BASE}'
-specs_dir = '${BASE_DIR}/specs'
-os.makedirs(specs_dir, exist_ok=True)
-
-for entry in ds:
-    repo_name = entry.get('repo', '').split('/')[-1]
-    if not repo_name:
-        continue
-
-    repo_dir = os.path.join(repo_base, repo_name)
-    if not os.path.isdir(repo_dir):
-        continue
-
-    bz2_path = os.path.join(repo_dir, 'spec.pdf.bz2')
-    pdf_path = os.path.join(repo_dir, 'spec.pdf')
-
-    if os.path.exists(bz2_path) or os.path.exists(pdf_path):
-        print(f'  OK   {repo_name}: spec already present')
-        continue
-
-    spec_url = ''
-    setup = entry.get('setup', {})
-    if isinstance(setup, dict):
-        spec_url = setup.get('specification', '')
-    if not spec_url:
-        spec_url = entry.get('specification', '')
-
-    if not spec_url:
-        print(f'  SKIP {repo_name}: no specification URL')
-        continue
-
-    cached_bz2 = os.path.join(specs_dir, f'{repo_name}.pdf.bz2')
-    cached_pdf = os.path.join(specs_dir, f'{repo_name}.pdf')
-
-    if os.path.exists(cached_bz2):
-        shutil.copy2(cached_bz2, bz2_path)
-        print(f'  OK   {repo_name}: copied from cache')
-        continue
-    if os.path.exists(cached_pdf):
-        shutil.copy2(cached_pdf, pdf_path)
-        print(f'  OK   {repo_name}: copied from cache (pdf)')
-        continue
-
-    print(f'  SCRAPE {repo_name}: {spec_url}')
-    try:
-        from tools.scrape_pdf import scrape_spec
-        result = scrape_spec(base_url=spec_url, name=repo_name, output_dir=specs_dir, compress=True)
-        if result and os.path.exists(result):
-            shutil.copy2(result, bz2_path)
-            print(f'  OK   {repo_name}: scraped and installed')
-        else:
-            print(f'  WARN {repo_name}: scrape returned no output')
-    except Exception as e:
-        print(f'  WARN {repo_name}: scrape failed: {e}')
-" 2>&1 | while IFS= read -r line; do log "$line"; done
-}
 
 verify_spec_docs() {
     if [[ "$USE_SPEC_INFO" != "true" ]]; then

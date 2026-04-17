@@ -144,7 +144,7 @@ def _ensure_oci_layout(oci_tar: Path) -> Path | None:
     try:
         layout_dir.mkdir(parents=True, exist_ok=True)
         with tarfile.open(oci_tar) as tf:
-            tf.extractall(layout_dir)
+            tf.extractall(layout_dir, filter="data")
         return layout_dir
     except Exception:
         _logger.debug("Failed to extract OCI layout from %s", oci_tar, exc_info=True)
@@ -171,6 +171,7 @@ def _check_qemu_support(platform_str: str) -> bool:
         )
         return result.returncode == 0
     except Exception:
+        _logger.debug("Failed to check Docker availability", exc_info=True)
         return False
 
 
@@ -474,14 +475,19 @@ def build_base_images(
                     "Base image %s already exists but MITM CA cert "
                     "was found at %s. If the cert was added after the base "
                     "image was built, delete the old image: docker rmi %s",
-                    image_name, mitm_ca_cert, image_name,
+                    image_name,
+                    mitm_ca_cert,
+                    image_name,
                 )
             else:
-                _logger.info("Base image %s already exists, skipping build.", image_name)
+                _logger.info(
+                    "Base image %s already exists, skipping build.", image_name
+                )
             continue
         elif daemon_exists:
             _logger.info(
-                "Base image %s in daemon but OCI tarball missing, rebuilding.", image_name
+                "Base image %s in daemon but OCI tarball missing, rebuilding.",
+                image_name,
             )
 
         _logger.info("Building base image (%s)", image_name)
@@ -529,11 +535,11 @@ def get_repo_configs_to_build(
     for test_spec in test_specs:
         try:
             client.images.get(test_spec.base_image_key)
-        except docker.errors.ImageNotFound:
+        except docker.errors.ImageNotFound as e:
             raise Exception(
                 f"Base image {test_spec.base_image_key} not found for {test_spec.repo_image_key}\n."
                 "Please build the base images first."
-            )
+            ) from e
 
         if test_spec.base_image_key not in base_timestamps:
             base_timestamps[test_spec.base_image_key] = _get_image_created_timestamp(
@@ -550,14 +556,25 @@ def get_repo_configs_to_build(
         if image_exists:
             repo_ts = _get_image_created_timestamp(client, test_spec.repo_image_key)
             base_ts = base_timestamps[test_spec.base_image_key]
-            if base_ts and repo_ts and base_ts > repo_ts:
-                _logger.warning(
-                    "Repo image %s is stale (built %s, base rebuilt %s) — scheduling rebuild",
-                    test_spec.repo_image_key,
-                    repo_ts[:19],
-                    base_ts[:19],
-                )
-                image_exists = False
+            if base_ts and repo_ts:
+                from datetime import datetime
+
+                try:
+                    base_dt = datetime.fromisoformat(base_ts.replace("Z", "+00:00"))
+                    repo_dt = datetime.fromisoformat(repo_ts.replace("Z", "+00:00"))
+                    if base_dt > repo_dt:
+                        _logger.warning(
+                            "Repo image %s is stale (built %s, base rebuilt %s) — scheduling rebuild",
+                            test_spec.repo_image_key,
+                            repo_ts[:19],
+                            base_ts[:19],
+                        )
+                        image_exists = False
+                except (ValueError, TypeError):
+                    _logger.debug(
+                        "Could not parse timestamps for stale check on %s",
+                        test_spec.repo_image_key,
+                    )
 
         if not image_exists:
             image_scripts[test_spec.repo_image_key] = {

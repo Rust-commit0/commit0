@@ -188,8 +188,8 @@ class TestWriteToContainer:
         write_to_container(container, "some data", Path("/tmp/out.txt"))
 
         cmd = container.exec_run.call_args[0][0]
-        assert HEREDOC_DELIMITER in cmd
         assert "cat <<" in cmd
+        assert "EOF_" in cmd
 
     def test_command_contains_data_and_dst(self):
         container = _mock_container()
@@ -216,34 +216,34 @@ class TestCleanupContainer:
         container.kill.assert_called_once()
         container.remove.assert_called_once_with(force=True)
 
-    @patch(f"{MODULE}.os.kill")
-    def test_kill_fails_uses_os_kill(self, mock_os_kill):
+    def test_kill_fails_uses_sigkill_fallback(self):
         container = _mock_container()
-        container.kill.side_effect = Exception("docker kill failed")
+        # First kill() fails, second kill(signal="SIGKILL") succeeds
+        container.kill.side_effect = [Exception("docker kill failed"), None]
 
         client = MagicMock()
-        client.api.inspect_container.return_value = {"State": {"Pid": 42}}
-
         logger = _logger()
 
         cleanup_container(client, container, logger)
 
-        client.api.inspect_container.assert_called_once_with("abc123")
-        mock_os_kill.assert_called_once_with(42, signal.SIGKILL)
+        assert container.kill.call_count == 2
+        container.kill.assert_any_call()
+        container.kill.assert_any_call(signal="SIGKILL")
         container.remove.assert_called_once_with(force=True)
 
-    def test_kill_fails_pid_zero_no_kill(self):
+    def test_kill_and_sigkill_both_fail_raises(self):
         container = _mock_container()
-        container.kill.side_effect = Exception("docker kill failed")
+        # Both kill attempts fail
+        container.kill.side_effect = [
+            Exception("docker kill failed"),
+            Exception("sigkill also failed"),
+        ]
 
         client = MagicMock()
-        client.api.inspect_container.return_value = {"State": {"Pid": 0}}
-
         logger = _logger()
 
-        with patch(f"{MODULE}.os.kill") as mock_os_kill:
+        with pytest.raises(Exception, match="Failed to forcefully kill"):
             cleanup_container(client, container, logger)
-            mock_os_kill.assert_not_called()
 
     def test_remove_fails_raises_exception(self):
         container = _mock_container()
@@ -362,12 +362,10 @@ class TestCreateContainer:
     @patch(f"{MODULE}.image_exists_locally", return_value=True)
     def test_error_cleans_up_and_reraises(self, mock_exists, mock_cleanup):
         client = MagicMock()
-        failing_container = MagicMock()
-        failing_container.id = "fail_id"
         client.containers.run.side_effect = Exception("creation failed")
         logger = _logger()
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(Exception, match="creation failed"):
             create_container(client, "img:tag", "cname", logger)
 
     @patch(f"{MODULE}.image_exists_locally", return_value=True)

@@ -32,19 +32,12 @@ from pathlib import Path
 
 import docker
 import docker.errors
-import platform as platform_mod
 import requests.exceptions
+
+from commit0.harness.docker_utils import get_docker_platform
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
-
-
-def _get_docker_platform() -> str:
-    machine = platform_mod.machine()
-    arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(
-        machine, "amd64"
-    )
-    return f"linux/{arch}"
 
 
 def _parse_collect_output(stdout: str) -> list[str]:
@@ -159,7 +152,7 @@ def collect_test_ids_local(
             )
             test_ids = _parse_collect_output(result_q.stdout)
         except subprocess.TimeoutExpired:
-            pass
+            logger.debug("Quiet-mode collect timed out for %s", repo_dir)
 
     return test_ids
 
@@ -212,7 +205,7 @@ def collect_test_ids_docker(
             image_name,
             command=f"bash -c '{bash_cmd}'",
             remove=True,
-            platform=_get_docker_platform(),
+            platform=get_docker_platform(),
         )
         stdout = (
             raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
@@ -241,7 +234,7 @@ def collect_test_ids_docker(
                 image_name,
                 command=f"bash -c '{bash_cmd_q}'",
                 remove=True,
-                platform=_get_docker_platform(),
+                platform=get_docker_platform(),
             )
             stdout_q = (
                 raw_q.decode("utf-8", errors="replace")
@@ -256,7 +249,9 @@ def collect_test_ids_docker(
                 else (raw_err_q or "")
             )
         except requests.exceptions.ReadTimeout:
-            logger.warning("Docker pytest --collect-only -q fallback timed out for %s", repo_name)
+            logger.warning(
+                "Docker pytest --collect-only -q fallback timed out for %s", repo_name
+            )
             return []
         test_ids = _parse_collect_output(stdout_q)
 
@@ -292,7 +287,7 @@ def validate_base_commit_docker(
             image_name,
             command=f"bash -c '{bash_cmd}'",
             remove=True,
-            platform=_get_docker_platform(),
+            platform=get_docker_platform(),
         )
         stdout = (
             raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw

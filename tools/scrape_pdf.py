@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import shutil
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
@@ -149,7 +150,31 @@ def _is_valid_link(link: str, base_url: str) -> str | None:
     return None
 
 
+# Generic URL path segments that indicate auth/login pages (never useful for docs).
+_AUTH_PATH_SEGMENTS = frozenset(
+    [
+        "login",
+        "logout",
+        "signin",
+        "signout",
+        "sign-in",
+        "sign-out",
+        "signup",
+        "sign-up",
+        "register",
+        "auth",
+        "oauth",
+        "sso",
+        "callback",
+        "reset-password",
+        "forgot-password",
+        "verify-email",
+    ]
+)
+
+
 def _should_skip_url(current_url: str, base_url: str) -> bool:
+    # Per-site pattern filtering
     for site_key, patterns in SKIP_URL_PATTERNS.items():
         if site_key in base_url:
             if any(p in current_url for p in patterns):
@@ -161,13 +186,32 @@ def _should_skip_url(current_url: str, base_url: str) -> bool:
         if len(parts) > 1 and parts[1] in FASTAPI_NON_ENGLISH_PREFIXES:
             return True
 
+    # Generic: skip auth/login pages on ANY site
+    parsed_path = urlparse(current_url).path.lower().strip("/")
+    path_segments = parsed_path.split("/")
+    if any(seg in _AUTH_PATH_SEGMENTS for seg in path_segments):
+        logger.debug("  Skipping auth/login URL: %s", current_url)
+        return True
+
+    # Skip URLs with login-related query parameters (e.g., ?redirect_uri=...)
+    query = urlparse(current_url).query.lower()
+    if "redirect_uri=" in query or "return_to=" in query or "next=" in query:
+        logger.debug("  Skipping redirect URL: %s", current_url)
+        return True
+
     return False
 
 
 def _generate_pdf(page: Any, url: str, output_dir: str) -> str:
     pdf_path = ""
     try:
-        page.goto(url, wait_until="networkidle", timeout=30000)
+        try:
+            page.goto(url, wait_until="networkidle", timeout=30000)
+        except Exception:
+            logger.debug(
+                "  networkidle timeout for %s, retrying with domcontentloaded", url
+            )
+            page.goto(url, wait_until="domcontentloaded", timeout=15000)
 
         out_name = f"{urlparse(url).path.replace('/', '_').strip('_')}.pdf"
         if out_name == ".pdf":
@@ -186,14 +230,17 @@ def _generate_pdf(page: Any, url: str, output_dir: str) -> str:
     return pdf_path
 
 
-def _crawl_website(browser: Any, base_url: str, output_dir: str) -> list[str]:
+def _crawl_website(
+    browser: Any, base_url: str, output_dir: str, max_pages: int = 500
+) -> list[str]:
     page = browser.new_page()
     visited: set[str] = set()
-    to_visit = [base_url]
+    to_visit = deque([base_url])
     sequence: list[str] = []
+    pages_scraped = 0
 
-    while to_visit:
-        current_url = to_visit.pop(0)
+    while to_visit and pages_scraped < max_pages:
+        current_url = to_visit.popleft()
 
         if _should_skip_url(current_url, base_url):
             continue
@@ -227,6 +274,7 @@ def _crawl_website(browser: Any, base_url: str, output_dir: str) -> list[str]:
             pdf = _generate_pdf(page, current_url, output_dir)
             if pdf:
                 sequence.append(pdf)
+            pages_scraped += 1
         except Exception as e:
             logger.warning("  Error crawling %s: %s", current_url, e)
 

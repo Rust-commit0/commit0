@@ -92,7 +92,9 @@ def get_default_branch(repo_dir: Path) -> str:
         ref = git(repo_dir, "symbolic-ref", "refs/remotes/origin/HEAD")
         return ref.split("/")[-1]
     except subprocess.CalledProcessError:
-        logger.debug("Could not determine default branch via symbolic-ref, trying common names")
+        logger.debug(
+            "Could not determine default branch via symbolic-ref, trying common names"
+        )
         # Fallback: check common names
         for branch in ["main", "master"]:
             try:
@@ -121,8 +123,8 @@ def fork_repo(full_name: str, org: str, token: str | None = None) -> str:
         if result.returncode == 0:
             logger.info("  Fork already exists: %s", fork_name)
             return fork_name
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Non-critical failure during fork check for %s: %s", fork_name, e)
 
     # Create fork
     logger.info("  Forking %s to %s...", full_name, org)
@@ -146,8 +148,8 @@ def fork_repo(full_name: str, org: str, token: str | None = None) -> str:
             if result.returncode == 0:
                 logger.info("  Fork ready: %s", fork_name)
                 return fork_name
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Non-critical failure during fork availability check: %s", e)
         time.sleep(2)
 
     raise RuntimeError(f"Fork {fork_name} not available after 20s")
@@ -288,8 +290,10 @@ def create_stubbed_branch(
 
     try:
         git(repo_dir, "branch", "-D", branch_name, check=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(
+            "Non-critical failure during branch cleanup of %s: %s", branch_name, e
+        )
     git(repo_dir, "checkout", "-b", branch_name)
 
     if src_dir:
@@ -467,6 +471,7 @@ def quick_import_check(repo_dir: Path, src_dir: str) -> tuple[bool, str]:
     except subprocess.TimeoutExpired:
         return False, "import timed out after 30s"
     except Exception as e:
+        logger.warning("Non-critical failure during import check: %s", e)
         return False, str(e)
 
 
@@ -595,8 +600,8 @@ def _read_requirements_file(req_file: Path, target: dict[str, str]) -> None:
             if not line or line.startswith("#") or line.startswith("-"):
                 continue
             _add_dep(target, line)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Non-critical failure during requirements file parsing: %s", e)
 
 
 def extract_test_dependencies(repo_dir: Path) -> list[str]:
@@ -833,7 +838,8 @@ def resolve_commits_from_remote(fork_name: str, branch: str) -> tuple[str, str] 
         parent_sha = commit_data["parents"][0]["sha"]
 
         return (sha, parent_sha)
-    except Exception:
+    except Exception as e:
+        logger.debug("Non-critical failure during remote commit resolution: %s", e)
         return None
 
 
@@ -855,8 +861,8 @@ def push_to_fork(
 
     try:
         git(repo_dir, "remote", "remove", "fork", check=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Non-critical failure during remote cleanup: %s", e)
     git(repo_dir, "remote", "add", "fork", fork_url)
 
     # Push branch

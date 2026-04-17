@@ -1,6 +1,8 @@
+import functools
 import hashlib
 import logging
 import os
+import shlex
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Union, cast, Optional
@@ -29,21 +31,17 @@ class Spec(ABC):
     repo_directory: str
     instance: Union[RepoInstance, SimpleInstance]
 
-    @property
+    @functools.cached_property
     def setup_script(self) -> str:
-        self.repo_script_list = self.make_repo_script_list()
+        repo_script_list = self.make_repo_script_list()
         return (
-            "\n".join(["#!/bin/bash", "set -euxo pipefail"] + self.repo_script_list)
-            + "\n"
+            "\n".join(["#!/bin/bash", "set -euxo pipefail"] + repo_script_list) + "\n"
         )
 
-    @property
+    @functools.cached_property
     def eval_script(self) -> str:
-        self.eval_script_list = self.make_eval_script_list()
-        return (
-            "\n".join(["#!/bin/bash", "set -uxo pipefail"] + self.eval_script_list)
-            + "\n"
-        )
+        eval_script_list = self.make_eval_script_list()
+        return "\n".join(["#!/bin/bash", "set -uxo pipefail"] + eval_script_list) + "\n"
         # Don't exit early because we need to revert tests at the end
 
     @property
@@ -165,7 +163,7 @@ class Commit0Spec(Spec):
             f"git reset --hard {self.instance['base_commit']}",
             f"git apply --allow-empty -v {diff_path}",
             "git status",
-            f"{self.instance['test']['test_cmd']} --json-report --json-report-file=report.json --continue-on-collection-errors{{coverage}} {{test_ids}} > test_output.txt 2>&1",
+            f"{shlex.quote(self.instance['test']['test_cmd'])} --json-report --json-report-file=report.json --continue-on-collection-errors{{coverage}} {{test_ids}} > test_output.txt 2>&1",
             "echo $? > pytest_exit_code.txt",
         ]
         return eval_script_list
@@ -200,7 +198,6 @@ class SWEBenchSpec(Spec):
         Dependencies are installed via Dockerfile layers (not setup.sh).
         """
         repo = self.instance["repo"]
-        specs = self.instance["setup"]
         base_commit = self.instance["base_commit"]
         setup_commands = [
             f"git clone --depth 1 -o origin https://github.com/{repo} {self.repo_directory}",
@@ -235,7 +232,7 @@ class SWEBenchSpec(Spec):
             + results
             + [
                 "git status",
-                f"{self.instance['test']['test_cmd']} --json-report --json-report-file=report.json --continue-on-collection-errors{{coverage}} {{test_ids}} > test_output.txt 2>&1",
+                f"{shlex.quote(self.instance['test']['test_cmd'])} --json-report --json-report-file=report.json --continue-on-collection-errors{{coverage}} {{test_ids}} > test_output.txt 2>&1",
                 "echo $? > pytest_exit_code.txt",
             ]
         )

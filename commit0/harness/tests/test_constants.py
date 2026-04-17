@@ -89,7 +89,7 @@ class TestRepoInstance:
 
     def test_getitem_nonexistent_raises(self):
         inst = self._make_instance()
-        with pytest.raises(AttributeError):
+        with pytest.raises(KeyError):
             inst["nonexistent_field"]
 
 

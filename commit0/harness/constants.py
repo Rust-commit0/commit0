@@ -27,7 +27,7 @@ class RepoInstance(BaseModel):
 
     def keys(self) -> KeysView[str]:
         """Return the field names of the model as dictionary keys."""
-        return self.__annotations__.keys()
+        return type(self).model_fields.keys()
 
 
 class SimpleInstance(BaseModel):
@@ -44,7 +44,7 @@ class SimpleInstance(BaseModel):
 
     def keys(self) -> KeysView[str]:
         """Return the field names of the model as dictionary keys."""
-        return self.__annotations__.keys()
+        return type(self).model_fields.keys()
 
 
 class Files(BaseModel):
@@ -58,7 +58,7 @@ class Files(BaseModel):
         """Using self.dict() to obtain the underlying data as a dictionary,
         which is then iterated to yield key-value pairs.
         """
-        return self.dict().items()
+        return self.model_dump().items()
 
 
 BASE_BRANCH = "commit0"
@@ -173,6 +173,8 @@ SPLIT_ALL = [
     "wcwidth",
     "deprecated",
 ]
+# NOTE: Individual SPLIT_XXX variables below are generated from SPLIT_ALL for convenience.
+# To add a new repo, add it to SPLIT_ALL and add a SPLIT_REPONAME = ["reponame"] line.
 SPLIT_MINITORCH = ["minitorch"]
 SPLIT_SIMPY = ["simpy"]
 SPLIT_STATSMODELS = ["statsmodels"]
@@ -358,7 +360,7 @@ TESTS_TIMEOUT = ">>>>> Tests Timed Out"
 NON_TEST_EXTS = [
     ".json",
     ".png",
-    "csv",
+    ".csv",
     ".txt",
     ".md",
     ".jpg",

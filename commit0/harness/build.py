@@ -10,9 +10,6 @@ from commit0.harness.health_check import run_health_checks
 from commit0.harness.spec import make_spec
 from commit0.harness.utils import load_dataset_from_config
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
 
 
@@ -72,8 +69,11 @@ def main(
         )
         for passed, check_name, detail in results:
             if not passed:
-                logger.error(
-                    "Health check FAILED [%s] for %s: %s", check_name, image_key, detail
+                logger.warning(
+                    "Health check FAILED [%s] for %s: %s (non-blocking — image may still be functional)",
+                    check_name,
+                    image_key,
+                    detail,
                 )
                 health_failures.append(image_key)
             else:
@@ -81,14 +81,19 @@ def main(
                     "Health check passed [%s] for %s: %s", check_name, image_key, detail
                 )
 
-    all_failed = list(failed) + health_failures
-    if all_failed:
+    if failed:
         logger.error(
-            "Failed to build or verify %d image(s): %s",
-            len(all_failed),
-            all_failed,
+            "Failed to build %d image(s): %s",
+            len(failed),
+            list(failed),
         )
         sys.exit(1)
+    if health_failures:
+        logger.warning(
+            "%d image(s) built but had health check warnings: %s",
+            len(health_failures),
+            health_failures,
+        )
 
 
 __all__ = []

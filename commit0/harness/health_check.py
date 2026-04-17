@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import textwrap
 from typing import Optional
 
 import docker
@@ -19,20 +20,87 @@ _PIP_IMPORT_MAP = {
     "python-jose": "jose",
     "python-multipart": "multipart",
     "msgpack-python": "msgpack",
+    "biscuit-python": "biscuit_auth",
+    "google-cloud-storage": "google.cloud.storage",
+    "google-auth": "google.auth",
+    "protobuf": "google.protobuf",
+    "grpcio": "grpc",
+    "opencv-python": "cv2",
+    "opencv-python-headless": "cv2",
+    "ruamel.yaml": "ruamel.yaml",
+    "importlib-metadata": "importlib_metadata",
+    "typing-extensions": "typing_extensions",
 }
 
 
-def pip_to_import(pip_name: str) -> str:
+def _normalize_pip_name(pip_name: str) -> str:
     normalized = pip_name.lower().split("[")[0]
-    normalized = (
-        normalized.split(">")[0]
-        .split("<")[0]
-        .split("=")[0]
-        .split("!")[0]
-        .split("~")[0]
-        .strip()
-    )
+    for sep in (">", "<", "=", "!", "~"):
+        normalized = normalized.split(sep)[0]
+    return normalized.strip()
+
+
+def pip_to_import(pip_name: str) -> str:
+    """Static fallback: map pip name to import name using known map + heuristic.
+
+    Used at Dockerfile generation time (before packages are installed).
+    For post-install verification, prefer discover_import_names() instead.
+    """
+    normalized = _normalize_pip_name(pip_name)
     return _PIP_IMPORT_MAP.get(normalized, normalized.replace("-", "_"))
+
+
+_DISCOVER_SCRIPT = textwrap.dedent("""\
+    import json, sys
+    from importlib.metadata import packages_distributions, PackageNotFoundError
+
+    pip_names = json.loads(sys.argv[1])
+    pkg_to_modules = {}
+    try:
+        dist_map = packages_distributions()
+        reverse = {}
+        for mod, dists in dist_map.items():
+            for d in dists:
+                reverse.setdefault(d.lower().replace("-", "_"), []).append(mod)
+    except Exception:
+        reverse = {}
+
+    for pip_name in pip_names:
+        norm = pip_name.lower().replace("-", "_")
+        modules = reverse.get(norm, [])
+        if modules:
+            pkg_to_modules[pip_name] = modules
+        else:
+            pkg_to_modules[pip_name] = None
+    print(json.dumps(pkg_to_modules))
+""")
+
+
+def discover_import_names(
+    client: docker.DockerClient,
+    image_name: str,
+    pip_names: list[str],
+) -> dict[str, list[str] | None]:
+    """Query Docker container for actual importable module names via importlib.metadata.
+
+    Returns {pip_name: [module1, module2, ...]} for discovered packages,
+    or {pip_name: None} when metadata lookup fails (fall back to static map).
+    """
+    import json as _json
+
+    cmd = ["python", "-c", _DISCOVER_SCRIPT, _json.dumps(pip_names)]
+    try:
+        output = client.containers.run(
+            image_name, cmd, remove=True, stderr=True, stdout=True
+        )
+        return _json.loads(output.decode().strip())
+    except Exception as e:
+        logger.debug(
+            "Metadata discovery failed for %s: %s — falling back to static map",
+            image_name,
+            e,
+        )
+        return {p: None for p in pip_names}
 
 
 def check_imports(
@@ -41,24 +109,39 @@ def check_imports(
     packages: list[str],
 ) -> tuple[bool, str]:
     skip_prefixes = ("pytest", "coverage", "pip", "setuptools", "wheel")
-    importable = [
-        pip_to_import(p)
+    to_check = [
+        _normalize_pip_name(p)
         for p in packages
         if not any(p.lower().startswith(s) for s in skip_prefixes)
     ]
-    if not importable:
+    if not to_check:
         return True, "No packages to check"
 
-    import_stmts = "; ".join(f"import {m}" for m in importable)
-    cmd = f'python -c "{import_stmts}"'
-    try:
-        client.containers.run(image_name, cmd, remove=True, stderr=True, stdout=True)
-        return True, f"All {len(importable)} packages importable"
-    except docker.errors.ContainerError as e:
-        stderr = e.stderr.decode() if e.stderr else str(e)
-        return False, f"Import check failed:\n{stderr}"
-    except Exception as e:
-        return False, f"Import check error: {e}"
+    discovered = discover_import_names(client, image_name, to_check)
+
+    failed = []
+    checked = 0
+    for pip_name in to_check:
+        modules = discovered.get(pip_name)
+        if modules is None:
+            modules = [pip_to_import(pip_name)]
+
+        top_module = modules[0].split(".")[0]
+        cmd = f'python -c "import {top_module}"'
+        try:
+            client.containers.run(
+                image_name, cmd, remove=True, stderr=True, stdout=True
+            )
+            checked += 1
+        except docker.errors.ContainerError:
+            failed.append(f"{pip_name} (tried: {top_module})")
+        except Exception as e:
+            logger.warning("Non-critical failure checking %s: %s", pip_name, e)
+            failed.append(f"{pip_name} (error: {e})")
+
+    if failed:
+        return False, f"Import check failed for: {', '.join(failed)}"
+    return True, f"All {checked} packages importable"
 
 
 def check_python_version(
@@ -76,6 +159,7 @@ def check_python_version(
             return True, f"Python {actual}"
         return False, f"Expected Python {expected}, got {actual}"
     except Exception as e:
+        logger.warning("Non-critical failure during Python version check: %s", e)
         return False, f"Python version check error: {e}"
 
 
@@ -98,6 +182,7 @@ def run_health_checks(
 __all__ = [
     "check_imports",
     "check_python_version",
+    "discover_import_names",
     "pip_to_import",
     "run_health_checks",
 ]

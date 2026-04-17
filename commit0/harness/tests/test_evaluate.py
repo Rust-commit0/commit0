@@ -111,30 +111,24 @@ class TestMainDatasetLoading:
 
     def test_swe_dataset_all_uses_instance_ids(self, base_patches):
         example = _make_example(instance_id="swe-bench/inst1", repo="github/r1")
-        dataset = MagicMock()
-        dataset.__iter__ = MagicMock(return_value=iter([example]))
-        dataset.__getitem__ = MagicMock(return_value=["swe-bench/inst1"])
-        base_patches["load"].return_value = dataset
+        base_patches["load"].return_value = [example]
         base_patches["exists"].return_value = False
         base_patches["get_tests"].return_value = [["test_a"]]
 
         main(**_default_kwargs(dataset_name="swe-bench-dataset", repo_split="all"))
 
-        dataset.__getitem__.assert_any_call("instance_id")
+        assert base_patches["executor"].submit.call_count == 1
 
     def test_swe_dataset_specific_split_filters(self, base_patches):
-        example = _make_example(instance_id="swe-bench/inst1", repo="github/r1")
-        dataset = MagicMock()
-        dataset.__iter__ = MagicMock(return_value=iter([example]))
-        dataset.__getitem__ = MagicMock(return_value=["swe-bench/inst1", "other/inst2"])
-        base_patches["load"].return_value = dataset
+        example1 = _make_example(instance_id="swe-bench/inst1", repo="github/r1")
+        example2 = _make_example(instance_id="other/inst2", repo="github/r2")
+        base_patches["load"].return_value = [example1, example2]
         base_patches["exists"].return_value = False
         base_patches["get_tests"].return_value = [["test_a"]]
 
         main(**_default_kwargs(dataset_name="SWE-data", repo_split="swe-bench"))
 
-        call_args = dataset.__getitem__.call_args_list
-        assert any(c == call("instance_id") for c in call_args)
+        assert base_patches["executor"].submit.call_count == 1
 
 
 class TestMainRepoSplit:
@@ -157,7 +151,7 @@ class TestMainRepoSplit:
 
         main(**_default_kwargs(repo_split="custom_unknown"))
 
-        assert base_patches["load"].call_count == 2
+        assert base_patches["load"].call_count == 1
 
     def test_commit0_split_filters_out_non_matching_repo(self, base_patches):
         base_patches["split"]["lite"] = ["other-repo"]
@@ -166,8 +160,7 @@ class TestMainRepoSplit:
         base_patches["exists"].return_value = False
         base_patches["get_tests"].return_value = []
 
-        with pytest.raises(ZeroDivisionError):
-            main(**_default_kwargs(repo_split="lite"))
+        main(**_default_kwargs(repo_split="lite"))
 
         base_patches["executor"].submit.assert_not_called()
 
@@ -352,7 +345,7 @@ class TestXfailCounting:
 
 
 class TestZeroTestIds:
-    def test_zero_test_ids_no_runs_causes_division_error(self, base_patches):
+    def test_zero_test_ids_no_runs_returns_zero_pass_rate(self, base_patches):
         example = _make_example()
         base_patches["load"].return_value = [example]
         base_patches["exists"].return_value = True
@@ -361,8 +354,9 @@ class TestZeroTestIds:
         m = mock_open(read_data=json.dumps(report))
         with patch("builtins.open", m):
             with patch(f"{MODULE}.json.load", return_value=report):
-                with pytest.raises(ZeroDivisionError):
-                    main(**_default_kwargs())
+                main(**_default_kwargs())
+        prints = [str(c) for c in base_patches["print"].call_args_list]
+        assert any("0.0" in p or "average pass rate" in p for p in prints)
 
 
 class TestTestIdNotInReport:
@@ -467,8 +461,7 @@ class TestEmptyDataset:
         base_patches["load"].return_value = []
         base_patches["get_tests"].return_value = []
 
-        with pytest.raises(ZeroDivisionError):
-            main(**_default_kwargs())
+        main(**_default_kwargs())
 
 
 class TestSweFilterInTripleLoop:

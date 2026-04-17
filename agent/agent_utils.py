@@ -1,3 +1,4 @@
+import copy
 import ast
 import bz2
 import hashlib
@@ -268,6 +269,7 @@ def _find_files_to_edit(base_dir: str, src_dir: str, test_dir: str) -> list[str]
 
 def ignore_cycles(graph: dict) -> list[str]:
     """Ignore the cycles in the graph."""
+    graph = copy.deepcopy(graph)
     ts = TopologicalSorter(graph)
     try:
         return list(ts.static_order())
@@ -335,30 +337,30 @@ def get_target_edit_files(
     logger.debug("Checking out reference commit %s", reference_commit)
     local_repo.git.checkout(reference_commit)
 
-    topological_sort_files, import_dependencies = (
-        topological_sort_based_on_dependencies(filtered_files)
-    )
-    if len(topological_sort_files) != len(filtered_files):
-        if len(topological_sort_files) < len(filtered_files):
-            # Find the missing elements
-            missing_files = set(filtered_files) - set(topological_sort_files)
-            logger.info(
-                "Topological sort: %d files, %d files not in dependency graph — appending",
-                len(topological_sort_files),
-                len(missing_files),
-            )
-            # Add the missing files to the end of the list
-            topological_sort_files = topological_sort_files + list(missing_files)
-        else:
-            raise ValueError(
-                "topological_sort_files should not be longer than filtered_files"
-            )
-    assert len(topological_sort_files) == len(filtered_files), (
-        "all files should be included"
-    )
-
-    # change to latest commit
-    local_repo.git.checkout(branch)
+    try:
+        topological_sort_files, import_dependencies = (
+            topological_sort_based_on_dependencies(filtered_files)
+        )
+        if len(topological_sort_files) != len(filtered_files):
+            if len(topological_sort_files) < len(filtered_files):
+                # Find the missing elements
+                missing_files = set(filtered_files) - set(topological_sort_files)
+                logger.info(
+                    "Topological sort: %d files, %d files not in dependency graph — appending",
+                    len(topological_sort_files),
+                    len(missing_files),
+                )
+                # Add the missing files to the end of the list
+                topological_sort_files = topological_sort_files + list(missing_files)
+            else:
+                raise ValueError(
+                    "topological_sort_files should not be longer than filtered_files"
+                )
+        assert len(topological_sort_files) == len(filtered_files), (
+            "all files should be included"
+        )
+    finally:
+        local_repo.git.checkout(branch)
 
     # Remove the base_dir prefix
     topological_sort_files = [
@@ -469,6 +471,7 @@ def get_message(
     if agent_config.use_spec_info:
         spec_pdf_path = Path(repo_path) / "spec.pdf"
         spec_bz2_path = Path(repo_path) / "spec.pdf.bz2"
+        decompress_failed = False
         if spec_bz2_path.exists() and not spec_pdf_path.exists():
             try:
                 with bz2.open(str(spec_bz2_path), "rb") as in_file:
@@ -481,8 +484,8 @@ def get_message(
                 # Clean up partial file to prevent reading corrupt data
                 if spec_pdf_path.exists():
                     spec_pdf_path.unlink()
-                spec_info = ""
-        if spec_pdf_path.exists():
+                decompress_failed = True
+        if not decompress_failed and spec_pdf_path.exists():
             raw_spec = get_specification(specification_pdf_path=spec_pdf_path)
             if len(raw_spec) > int(agent_config.max_spec_info_length * 1.5):
                 processed_spec = summarize_specification(
@@ -1005,7 +1008,9 @@ def create_branch(repo: git.Repo, branch: str, from_commit: str) -> None:
             repo.git.checkout(from_commit)
             repo.git.checkout("-b", branch)
     except git.exc.GitCommandError as e:  # type: ignore
-        raise RuntimeError(f"Failed to create or switch to branch '{branch}': {e}")
+        raise RuntimeError(
+            f"Failed to create or switch to branch '{branch}': {e}"
+        ) from e
 
 
 def get_changed_files_from_commits(

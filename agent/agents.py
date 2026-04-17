@@ -96,7 +96,6 @@ def register_bedrock_arn_pricing(model_name: str) -> None:
                 )
                 return
 
-            from aider.llm import litellm as aider_litellm
             import litellm
 
             for base_id, pricing in BEDROCK_REGION_MODEL_PRICING.items():
@@ -135,6 +134,7 @@ def handle_logging(logging_name: str, log_file: Path) -> None:
     logger = logging.getLogger(logging_name)
     logger.setLevel(logging.INFO)
     logger.propagate = False
+    logger.handlers.clear()  # Prevent handler accumulation
     logger_handler = logging.FileHandler(log_file)
     logger_handler.setFormatter(
         logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -266,7 +266,7 @@ def _apply_thinking_capture_patches(
         return _original_send_message(message, *args, **kwargs)
 
     # Patch 4: Assistant reply capture (with thinking + token counts)
-    def patched_add_assistant_reply():
+    def patched_add_assistant_reply() -> None:
         if coder._thinking_capture is not None:
             thinking_tokens = 0
             if coder._last_completion_usage:
@@ -349,14 +349,17 @@ class AiderAgents(Agents):
             api_key = os.environ.get("AWS_ACCESS_KEY_ID", None) or os.environ.get(
                 "AWS_BEARER_TOKEN_BEDROCK", None
             )
-        elif "gpt" in model_name or "openai" in model_name:
+        elif any(k in model_name for k in ("gpt", "openai", "o1", "o3", "o4", "ft:")):
             api_key = os.environ.get("OPENAI_API_KEY", None)
-        elif "claude" in model_name:
+        elif "claude" in model_name or "anthropic" in model_name:
             api_key = os.environ.get("ANTHROPIC_API_KEY", None)
-        elif "gemini" in model_name:
+        elif "gemini" in model_name or "google" in model_name:
             api_key = os.environ.get("API_KEY", None)
         else:
-            raise ValueError(f"Unsupported model: {model_name}")
+            _logger.warning(
+                "Unknown model provider for '%s', skipping API key check", model_name
+            )
+            api_key = "assumed_present"
 
         if not api_key:
             _logger.error("No API key found for model %s", model_name)
@@ -404,15 +407,11 @@ class AiderAgents(Agents):
         input_history_file = log_dir / ".aider.input.history"
         chat_history_file = log_dir / ".aider.chat.history.md"
 
-        # Set up logging
         log_file = log_dir / "aider.log"
-        logging.basicConfig(
-            filename=log_file,
-            level=logging.INFO,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        )
 
         # Redirect print statements to the log file
+        _saved_stdout = sys.stdout
+        _saved_stderr = sys.stderr
         try:
             sys.stdout = open(log_file, "a")
             sys.stderr = open(log_file, "a")
@@ -420,87 +419,90 @@ class AiderAgents(Agents):
             _logger.error("Failed to redirect stdout/stderr to %s: %s", log_file, e)
             raise
 
-        # Configure httpx and backoff logging
-        handle_logging("httpx", log_file)
-        handle_logging("backoff", log_file)
+        try:
+            # Configure httpx and backoff logging
+            handle_logging("httpx", log_file)
+            handle_logging("backoff", log_file)
 
-        io = InputOutput(
-            yes=True,
-            input_history_file=input_history_file,
-            chat_history_file=chat_history_file,
-        )
-        coder = Coder.create(
-            main_model=self.model,
-            fnames=fnames,
-            auto_lint=auto_lint,
-            auto_test=auto_test,
-            lint_cmds={"python": lint_cmd},
-            test_cmd=test_cmd,
-            io=io,
-            cache_prompts=self.cache_prompts,
-        )
-        coder.max_reflections = self.max_iteration
-        coder.stream = True
-
-        if max_test_output_length > 0:
-            _original_cmd_test = coder.commands.cmd_test
-            _max_len = max_test_output_length
-            _model = spec_summary_model
-            _max_tok = spec_summary_max_tokens
-
-            def _wrapped_cmd_test(test_cmd_arg: str) -> str:
-                raw = _original_cmd_test(test_cmd_arg)
-                if raw and len(raw) > _max_len:
-                    return summarize_test_output(
-                        raw,
-                        max_length=_max_len,
-                        model=_model,
-                        max_tokens=_max_tok,
-                    )
-                return raw
-
-            coder.commands.cmd_test = _wrapped_cmd_test
-
-        if thinking_capture is not None:
-            _apply_thinking_capture_patches(
-                coder, thinking_capture, current_stage, current_module
+            io = InputOutput(
+                yes=True,
+                input_history_file=input_history_file,
+                chat_history_file=chat_history_file,
             )
+            coder = Coder.create(
+                main_model=self.model,
+                fnames=fnames,
+                auto_lint=auto_lint,
+                auto_test=auto_test,
+                lint_cmds={"python": lint_cmd},
+                test_cmd=test_cmd,
+                io=io,
+                cache_prompts=self.cache_prompts,
+            )
+            coder.max_reflections = self.max_iteration
+            coder.stream = True
 
-        # Run the agent
-        if test_first:
-            test_errors = coder.commands.cmd_test(test_cmd)
-            if test_errors:
-                _logger.info("Running coder with test errors for %s", fnames)
-                coder.run(test_errors)
+            if max_test_output_length > 0:
+                _original_cmd_test = coder.commands.cmd_test
+                _max_len = max_test_output_length
+                _model = spec_summary_model
+                _max_tok = spec_summary_max_tokens
+
+                def _wrapped_cmd_test(test_cmd_arg: str) -> str:
+                    raw = _original_cmd_test(test_cmd_arg)
+                    if raw and len(raw) > _max_len:
+                        return summarize_test_output(
+                            raw,
+                            max_length=_max_len,
+                            model=_model,
+                            max_tokens=_max_tok,
+                        )
+                    return raw
+
+                coder.commands.cmd_test = _wrapped_cmd_test
+
+            if thinking_capture is not None:
+                _apply_thinking_capture_patches(
+                    coder, thinking_capture, current_stage, current_module
+                )
+
+            # Run the agent
+            if test_first:
+                test_errors = coder.commands.cmd_test(test_cmd)
+                if test_errors:
+                    _logger.info("Running coder with test errors for %s", fnames)
+                    coder.run(test_errors)
+                    _logger.info("Coder finished for %s", fnames)
+            elif lint_first:
+                _logger.info("Running lint-first for %s", fnames)
+                coder.commands.cmd_lint(fnames=fnames)
+                _logger.info("Lint finished for %s", fnames)
+            else:
+                max_input = self.model.info.get("max_input_tokens", 0)
+                if max_input > 0:
+                    estimated_tokens = len(message) // 4
+                    if estimated_tokens > max_input:
+                        logger = logging.getLogger(__name__)
+                        logger.warning(
+                            f"Skipping: message ~{estimated_tokens} tokens exceeds "
+                            f"max_input_tokens {max_input} for {fnames}"
+                        )
+                        return AiderReturn(log_file)
+                _logger.info("Running coder for %s", fnames)
+                coder.run(message)
                 _logger.info("Coder finished for %s", fnames)
-        elif lint_first:
-            _logger.info("Running lint-first for %s", fnames)
-            coder.commands.cmd_lint(fnames=fnames)
-            _logger.info("Lint finished for %s", fnames)
-        else:
-            max_input = self.model.info.get("max_input_tokens", 0)
-            if max_input > 0:
-                estimated_tokens = len(message) // 4
-                if estimated_tokens > max_input:
-                    logger = logging.getLogger(__name__)
-                    logger.warning(
-                        f"Skipping: message ~{estimated_tokens} tokens exceeds "
-                        f"max_input_tokens {max_input} for {fnames}"
-                    )
+        finally:
+            if sys.stdout is not _saved_stdout:
+                try:
                     sys.stdout.close()
+                except Exception:
+                    pass
+            if sys.stderr is not _saved_stderr:
+                try:
                     sys.stderr.close()
-                    sys.stdout = sys.__stdout__
-                    sys.stderr = sys.__stderr__
-                    return AiderReturn(log_file)
-            _logger.info("Running coder for %s", fnames)
-            coder.run(message)
-            _logger.info("Coder finished for %s", fnames)
-
-        # Close redirected stdout and stderr
-        sys.stdout.close()
-        sys.stderr.close()
-        # Restore original stdout and stderr
-        sys.stdout = sys.__stdout__
-        sys.stderr = sys.__stderr__
+                except Exception:
+                    pass
+            sys.stdout = _saved_stdout
+            sys.stderr = _saved_stderr
 
         return AiderReturn(log_file)

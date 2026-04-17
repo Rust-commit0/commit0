@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import List, Optional
 
 from commit0.harness.constants import DOCKERFILES_DIR, SUPPORTED_PYTHON_VERSIONS
@@ -92,12 +91,17 @@ def detect_system_dependencies(pip_packages: list[str]) -> list[str]:
     # Filter out packages already in the base image
     return sorted(apt_deps - _BASE_APT_PACKAGES)
 
+
 _logger = logging.getLogger(__name__)
 
 
 def get_dockerfile_base(python_version: str) -> str:
     if python_version not in SUPPORTED_PYTHON_VERSIONS:
-        _logger.error("Unsupported Python version: %s (supported: %s)", python_version, sorted(SUPPORTED_PYTHON_VERSIONS))
+        _logger.error(
+            "Unsupported Python version: %s (supported: %s)",
+            python_version,
+            sorted(SUPPORTED_PYTHON_VERSIONS),
+        )
         raise ValueError(
             f"Unsupported Python version: {python_version}. "
             f"Supported: {sorted(SUPPORTED_PYTHON_VERSIONS)}"

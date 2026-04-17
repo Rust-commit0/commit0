@@ -1,3 +1,4 @@
+import copy
 import os
 import time
 import yaml
@@ -26,7 +27,6 @@ from commit0.harness.constants import RUN_AGENT_LOG_DIR, RepoInstance
 from commit0.harness.utils import load_dataset_from_config
 from commit0.cli import read_commit0_config_file
 from pathlib import Path
-from datetime import datetime
 from agent.run_agent import DirContext, run_eval_after_each_commit
 import logging
 
@@ -82,7 +82,7 @@ def run_agent_for_repo(
         )
         raise Exception(
             f"{repo_path} is not a git repo. Check if base_dir is correctly specified."
-        )
+        ) from None
 
     if agent_config.agent_name == "aider":
         agent = AiderAgents(
@@ -241,13 +241,17 @@ def run_agent_for_repo(
 
                 if agent_config.add_import_module_to_context:
                     dependencies = import_dependencies.get(f, [])
-                    message = update_message_with_dependencies(message, dependencies)
+                    iter_message = update_message_with_dependencies(
+                        copy.deepcopy(message), dependencies
+                    )
+                else:
+                    iter_message = message
 
                 lint_cmd = get_lint_cmd(
                     repo_name, agent_config.use_lint_info, commit0_config_file
                 )
                 _ = agent.run(
-                    message,
+                    iter_message,
                     "",
                     lint_cmd,
                     [f],

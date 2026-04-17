@@ -265,29 +265,29 @@ class TestDirtyCheck:
     @patch(f"{MODULE}.git.Repo")
     @patch(f"{MODULE}.os.path.exists", return_value=True)
     @patch(f"{MODULE}.load_dataset_from_config")
-    def test_not_dirty_adds_and_commits(
+    def test_not_dirty_skips_add_and_commit(
         self, mock_load, mock_exists, mock_repo_cls, mock_create
     ):
         mock_repo = _make_mock_repo(heads=["main"], remotes=[], dirty=False)
         mock_repo_cls.return_value = mock_repo
         mock_load.return_value = [_make_example()]
         main("ds", "test", "all", "/base", "owner", "main", github_token="t")
-        mock_repo.git.add.assert_called_once_with(A=True)
-        mock_repo.index.commit.assert_called_once_with("AI generated code.")
+        mock_repo.git.add.assert_not_called()
+        mock_repo.index.commit.assert_not_called()
 
     @patch(f"{MODULE}.create_repo_on_github")
     @patch(f"{MODULE}.git.Repo")
     @patch(f"{MODULE}.os.path.exists", return_value=True)
     @patch(f"{MODULE}.load_dataset_from_config")
-    def test_dirty_skips_add_and_commit(
+    def test_dirty_adds_and_commits(
         self, mock_load, mock_exists, mock_repo_cls, mock_create
     ):
         mock_repo = _make_mock_repo(heads=["main"], remotes=[], dirty=True)
         mock_repo_cls.return_value = mock_repo
         mock_load.return_value = [_make_example()]
         main("ds", "test", "all", "/base", "owner", "main", github_token="t")
-        mock_repo.git.add.assert_not_called()
-        mock_repo.index.commit.assert_not_called()
+        mock_repo.git.add.assert_called_once_with(A=True)
+        mock_repo.index.commit.assert_called_once_with("AI generated code.")
 
 
 class TestPush:

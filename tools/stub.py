@@ -347,8 +347,10 @@ def collect_import_time_names(
 
 def is_docstring(node: ast.stmt) -> bool:
     """Check if an AST statement is a docstring (string expression)."""
-    return isinstance(node, ast.Expr) and isinstance(
-        node.value, (ast.Constant, ast.Str)
+    return (
+        isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
     )
 
 

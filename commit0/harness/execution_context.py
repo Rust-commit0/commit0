@@ -7,11 +7,8 @@ and HTTP servers.
 from abc import ABC, abstractmethod
 import docker
 import logging
-import modal
-import modal.io_streams
 import uuid
 from enum import auto
-from e2b_code_interpreter import Sandbox
 from strenum import StrEnum
 from pathlib import Path
 import time
@@ -31,6 +28,11 @@ from commit0.harness.docker_utils import (
     copy_to_container,
     exec_run_with_timeout,
 )
+
+# Lazy-loaded optional dependency sentinels (set on first use).
+# Module-level attributes allow test code to patch via @patch("...modal").
+modal = None  # type: ignore[assignment]
+Sandbox = None  # type: ignore[assignment]
 
 
 class ExecutionBackend(StrEnum):
@@ -116,7 +118,9 @@ class Docker(ExecutionContext):
         self.container.start()
         if files_to_copy:
             for key, f in files_to_copy.items():
-                logger.debug("Copying %s to container: %s -> %s", key, f["src"], f["dest"])
+                logger.debug(
+                    "Copying %s to container: %s -> %s", key, f["src"], f["dest"]
+                )
                 copy_to_container(self.container, f["src"], f["dest"])  # type: ignore
 
     def exec_run_with_timeout(self, command: str) -> tuple[str, bool, float]:
@@ -162,6 +166,12 @@ class Modal(ExecutionContext):
         files_to_collect: Optional[list[str]] = None,
         rebuild_image: bool = False,
     ):
+        global modal
+        if modal is None:
+            import modal as _modal
+
+            modal = _modal
+
         super().__init__(
             spec,
             logger,
@@ -174,7 +184,6 @@ class Modal(ExecutionContext):
 
         self.app = modal.App.lookup("commit0", create_if_missing=True)
 
-        # the image must exist on dockerhub
         reponame = spec.repo.split("/")[-1]
         image_name = f"wentingzhao/{reponame}:v0".lower()
         image = modal.Image.from_registry(image_name, force_build=rebuild_image)
@@ -258,6 +267,12 @@ class E2B(ExecutionContext):
         # in modal, we create a sandbox for each operation. this seems super slow.
         # let's try having a single sandbox for multiple operations
         # assume the sandbox needs to be alive for an hour, the max duration
+        global Sandbox
+        if Sandbox is None:
+            from e2b_code_interpreter import Sandbox as _Sandbox
+
+            Sandbox = _Sandbox
+
         logger.info("Creating E2B sandbox for %s", spec.repo)
         self.sb = Sandbox(timeout=60 * 60)
         logger.debug("E2B: running pip install --upgrade pip")

@@ -641,8 +641,9 @@ class TestBuildBaseImages:
     @patch(f"{MODULE}._multiarch_builder_args", return_value=[])
     @patch(f"{MODULE}.get_specs_from_dataset")
     def test_skips_existing_images(
-        self, mock_specs, _multi, mock_build, tmp_path, capsys
+        self, mock_specs, _multi, mock_build, tmp_path, caplog
     ):
+        caplog.set_level(logging.INFO, logger="commit0.harness.docker_build")
         spec = self._make_test_spec(
             "commit0.base.python3.12:v1", "FROM python:3.12", "linux/amd64"
         )
@@ -663,8 +664,7 @@ class TestBuildBaseImages:
             build_base_images(mock_client, ["ds"], "commit0")
 
         mock_build.assert_not_called()
-        captured = capsys.readouterr()
-        assert "already exists" in captured.out
+        assert any("already exists" in r.message for r in caplog.records)
 
     @patch(f"{MODULE}.build_image")
     @patch(f"{MODULE}._multiarch_builder_args", return_value=[])
@@ -695,8 +695,9 @@ class TestBuildBaseImages:
     @patch(f"{MODULE}._multiarch_builder_args", return_value=[])
     @patch(f"{MODULE}.get_specs_from_dataset")
     def test_warns_about_mitm_cert_on_existing(
-        self, mock_specs, _multi, mock_build, tmp_path, capsys
+        self, mock_specs, _multi, mock_build, tmp_path, caplog
     ):
+        caplog.set_level(logging.WARNING, logger="commit0.harness.docker_build")
         spec = self._make_test_spec(
             "commit0.base.python3.12:v1", "FROM python:3.12", "linux/amd64"
         )
@@ -720,8 +721,7 @@ class TestBuildBaseImages:
             build_base_images(mock_client, ["ds"], "commit0", mitm_ca_cert=cert)
 
         mock_build.assert_not_called()
-        captured = capsys.readouterr()
-        assert "WARNING" in captured.out
+        assert any(r.levelname == "WARNING" for r in caplog.records)
 
 
 class TestGetRepoConfigsToBuild:
@@ -779,15 +779,17 @@ class TestBuildRepoImages:
     @patch(f"{MODULE}.build_base_images")
     @patch(f"{MODULE}.get_proxy_env", return_value={})
     @patch(f"{MODULE}._resolve_mitm_ca_cert", return_value=None)
-    def test_empty_configs_returns_early(self, _cert, _proxy, _base, _configs, capsys):
+    def test_empty_configs_returns_early(self, _cert, _proxy, _base, _configs, caplog):
+        caplog.set_level(logging.INFO, logger="commit0.harness.docker_build")
         from commit0.harness.docker_build import build_repo_images
 
         mock_client = MagicMock()
         successful, failed = build_repo_images(mock_client, ["ds"], "commit0")
         assert successful == []
         assert failed == []
-        captured = capsys.readouterr()
-        assert "No repo images need to be built" in captured.out
+        assert any(
+            "No repo images need to be built" in r.message for r in caplog.records
+        )
 
     @patch(f"{MODULE}._multiarch_builder_args", return_value=[])
     @patch(f"{MODULE}.build_image")

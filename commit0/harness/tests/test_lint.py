@@ -193,7 +193,7 @@ class TestConfigFile:
             assert "ruff" in written_content
 
     @patch(f"{MODULE}.load_dataset_from_config")
-    def test_config_not_overwritten_when_exists(self, mock_load):
+    def test_config_always_written(self, mock_load):
         mock_load.return_value = _dataset()
         with (
             patch(f"{MODULE}.Path.is_file", return_value=True),
@@ -206,7 +206,7 @@ class TestConfigFile:
             from commit0.harness.lint import main
 
             main("ds", "test", "/repos/my-lib", [Path("x.py")], "/base")
-            mock_write.assert_not_called()
+            mock_write.assert_called_once()
 
 
 class TestPreCommitBinary:

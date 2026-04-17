@@ -176,7 +176,12 @@ def github_api(
                 else:
                     raise
         except Exception:
-            logger.debug("GitHub API request failed (attempt %d/%d)", attempt + 1, retries, exc_info=True)
+            logger.debug(
+                "GitHub API request failed (attempt %d/%d)",
+                attempt + 1,
+                retries,
+                exc_info=True,
+            )
             if attempt < retries - 1:
                 time.sleep(2**attempt)
             else:
@@ -308,13 +313,13 @@ def get_latest_release_tag(full_name: str, token: str | None = None) -> str | No
         release = github_api(f"/repos/{full_name}/releases/latest", token=token)
         return release.get("tag_name")
     except Exception:
-        pass
+        logger.debug("No release found for %s, trying tags", full_name)
     try:
         tags = github_api(f"/repos/{full_name}/tags?per_page=1", token=token)
         if tags and isinstance(tags, list) and len(tags) > 0:
             return tags[0].get("name")
     except Exception:
-        pass
+        logger.debug("No tags found for %s", full_name)
     return None
 
 
@@ -358,6 +363,7 @@ def check_has_pytest(
                 if "pytest" in content.lower():
                     return True
         except Exception:
+            logger.debug("Failed to check %s/%s for pytest", full_name, filename)
             continue
 
     return False
@@ -411,6 +417,7 @@ def enrich_candidates(
                 )
                 repo["has_pytest"] = has_pytest
             except Exception:
+                logger.debug("Failed to check pytest for %s", full_name)
                 repo["has_pytest"] = False
 
             if not has_pytest:
@@ -428,6 +435,7 @@ def enrich_candidates(
             release_tag = get_latest_release_tag(full_name, token=token)
             repo["release_tag"] = release_tag
         except Exception:
+            logger.debug("Failed to get release tag for %s", full_name)
             repo["release_tag"] = None
 
         logger.info(

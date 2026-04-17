@@ -15,11 +15,13 @@ from ghapi.core import GhApi
 
 
 class EvaluationError(Exception):
-    def __init__(self, repo: str, message: str, logger: logging.Logger):
+    def __init__(
+        self, repo: str, message: str, logger: logging.Logger, log_file: str = ""
+    ):
         super().__init__(message)
         self.super_str = super().__str__()
         self.repo = repo
-        self.log_file = ""  # logger.log_file
+        self.log_file = log_file
         self.logger = logger
 
     def __str__(self):
@@ -124,47 +126,57 @@ def clone_repo(
             repo.git.fetch()
         except git.exc.GitCommandError as e:
             logger.error("Failed to fetch updates for %s: %s", clone_dir, e)
-            raise RuntimeError(f"Failed to fetch updates for repository: {e}")
+            raise RuntimeError(f"Failed to fetch updates for repository: {e}") from e
     else:
         logger.info(f"Cloning {clone_url} into {clone_dir}")
         try:
             repo = git.Repo.clone_from(clone_url, clone_dir)
         except git.exc.GitCommandError as e:
             logger.error("Failed to clone %s: %s", clone_url, e)
-            raise RuntimeError(f"Failed to clone repository: {e}")
+            raise RuntimeError(f"Failed to clone repository: {e}") from e
 
     try:
         repo.git.checkout(branch)
     except git.exc.GitCommandError as e:
         logger.error("Failed to check out branch %s in %s: %s", branch, clone_dir, e)
-        raise RuntimeError(f"Failed to check out {branch}: {e}")
+        raise RuntimeError(f"Failed to check out {branch}: {e}") from e
 
     return repo
 
 
 def create_repo_on_github(
-    organization: str, repo: str, logger: logging.Logger, token: Optional[str] = None
+    organization: str,
+    repo: str,
+    logger: logging.Logger,
+    token: Optional[str] = None,
+    max_retries: int = 10,
 ) -> None:
     api = GhApi(token=token)
-    while True:
+    for attempt in range(max_retries):
         try:
             api.repos.get(owner=organization, repo=repo)  # type: ignore
             logger.info(f"{organization}/{repo} already exists")
-            break
+            return
         except HTTP403ForbiddenError:
-            while True:
+            for _ in range(60):
                 rl = api.rate_limit.get()  # type: ignore
                 logger.info(
-                    f"Rate limit exceeded for the current GitHub token,"
-                    f"waiting for 5 minutes, remaining calls: {rl.resources.core.remaining}"
+                    f"Rate limit exceeded, waiting. Remaining: {rl.resources.core.remaining}"
                 )
                 if rl.resources.core.remaining > 0:
                     break
                 time.sleep(60 * 5)
+            else:
+                raise RuntimeError(
+                    f"Rate limit not recovered after 5 hours for {organization}/{repo}"
+                )
         except HTTP404NotFoundError:
             api.repos.create_in_org(org=organization, name=repo)  # type: ignore
             logger.info(f"Created {organization}/{repo} on GitHub")
-            break
+            return
+    raise RuntimeError(
+        f"Failed to create/access {organization}/{repo} after {max_retries} retries"
+    )
 
 
 def generate_patch_between_commits(
@@ -201,7 +213,7 @@ def generate_patch_between_commits(
         )
         return patch + "\n\n"
     except git.GitCommandError as e:
-        raise Exception(f"Error generating patch: {e}")
+        raise Exception(f"Error generating patch: {e}") from e
 
 
 def get_active_branch(repo_path: Union[str, Path]) -> str:
@@ -228,7 +240,7 @@ def get_active_branch(repo_path: Union[str, Path]) -> str:
         raise Exception(
             f"{e}\nThis means the repository is in a detached HEAD state. "
             "To proceed, please specify a valid branch by using --branch {branch}."
-        )
+        ) from e
 
     return branch
 

@@ -91,7 +91,9 @@ def main(
         elif os.path.isdir(repo_dir):
             repo = repo_dir
         else:
-            logger.error("Neither %s nor %s is a valid path", repo_dir, repo_or_repo_dir)
+            logger.error(
+                "Neither %s nor %s is a valid path", repo_dir, repo_or_repo_dir
+            )
             raise Exception(
                 f"Neither {repo_dir} nor {repo_or_repo_dir} is a valid path.\nUsage: commit0 lint {{repo_or_repo_dir}}"
             )
@@ -167,7 +169,7 @@ def main(
         raise FileNotFoundError(f"Error running pre-commit: {e}") from e
     except Exception as e:
         logger.error("Unexpected error running pre-commit: %s", e, exc_info=True)
-        raise Exception(f"An unexpected error occurred: {e}")
+        raise Exception(f"An unexpected error occurred: {e}") from e
 
 
 __all__ = []

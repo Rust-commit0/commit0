@@ -82,23 +82,29 @@ def main(
     dataset: Iterator[RepoInstance] = load_dataset_from_config(
         dataset_name, split=dataset_split
     )  # type: ignore
+    dataset_list = list(dataset) if not isinstance(dataset, list) else dataset
+    logger.info(
+        "Loaded %d entries from dataset=%s, split=%s, repo_split=%s",
+        len(dataset_list),
+        dataset_name,
+        dataset_split,
+        repo_split,
+    )
     if "swe" in dataset_name.lower():
+        all_instance_ids = [ex["instance_id"] for ex in dataset_list]
         if repo_split == "all":
-            repos = dataset["instance_id"]  # type: ignore
+            repos = all_instance_ids
         else:
-            repos = [one for one in dataset["instance_id"] if repo_split in one]  # type: ignore
+            repos = [iid for iid in all_instance_ids if repo_split in iid]
     else:
         repos = (
             SPLIT[repo_split]
             if repo_split in SPLIT
-            else [
-                ex["repo"].split("/")[-1]
-                for ex in load_dataset_from_config(dataset_name, split=dataset_split)
-            ]
+            else [ex["repo"].split("/")[-1] for ex in dataset_list]
         )
     triples = []
     log_dirs = []
-    for example in dataset:
+    for example in dataset_list:
         repo_name = example["repo"].split("/")[-1]
         if "swe" in dataset_name.lower():
             if repo_split != "all" and repo_split not in example["instance_id"]:
@@ -109,20 +115,41 @@ def main(
                     if repo_name not in SPLIT[repo_split]:
                         continue
                 else:
-                    pass
+                    if repo_name != repo_split:
+                        continue
         hashed_test_ids = get_hash_string(example["test"]["test_dir"])
-        if branch is None:
+        repo_branch = branch
+        if repo_branch is None:
             git_path = os.path.join(base_dir, example["instance_id"])
-            branch = get_active_branch(git_path)
-            logger.debug("Branch not specified, resolved to: %s", branch)
+            repo_branch = get_active_branch(git_path)
+            logger.debug(
+                "Branch not specified for %s, resolved to: %s", repo_name, repo_branch
+            )
         log_dir = (
             RUN_PYTEST_LOG_DIR
             / example["instance_id"].split("/")[-1]
-            / branch
+            / repo_branch
             / hashed_test_ids
         )
         log_dirs.append(str(log_dir))
-        triples.append((example["instance_id"], example["test"]["test_dir"], branch))
+        triples.append(
+            (example["instance_id"], example["test"]["test_dir"], repo_branch)
+        )
+
+    if not triples:
+        logger.error(
+            "No repos matched repo_split=%r in dataset with %d entries. "
+            "Check .commit0.yaml repo_split matches repo names in the dataset.",
+            repo_split,
+            len(dataset_list),
+        )
+        return
+
+    logger.info(
+        "Evaluating %d repo(s) out of %d dataset entries",
+        len(triples),
+        len(dataset_list),
+    )
 
     # Pre-flight: validate all required Docker images exist before launching parallel eval
     if not rebuild_image:
@@ -154,16 +181,19 @@ def main(
                     num_cpus,
                     rebuild_image=rebuild_image,
                     verbose=0,
-                ): None
+                ): repo
                 for repo, test_dir, branch in triples
             }
             # Wait for each future to complete
             for future in as_completed(futures):
                 pbar.update(1)
+                repo_name = futures[future]
                 try:
                     future.result()
                 except Exception as e:
-                    logger.error(f"Evaluation failed for a repo: {e}")
+                    logger.error(
+                        f"Evaluation failed for {repo_name}: {e}", exc_info=True
+                    )
 
     # get numbers
     out = []
@@ -224,7 +254,11 @@ def main(
             total = sum(runtimes)
         if "xfail" not in status:
             status["xfail"] = 0
-        passed = (status["passed"] + status["xfail"]) / sum(status.values())
+        passed = (
+            (status["passed"] + status["xfail"]) / sum(status.values())
+            if sum(status.values()) > 0
+            else 0.0
+        )
         out.append(
             {
                 "name": name,
@@ -239,10 +273,15 @@ def main(
     for x in out:
         print(f"{x['name']},{x['sum']},{x['num_passed']}/{x['num_tests']}")
     total_runtime = sum([x["sum"] for x in out])
-    averaged_passed = sum([x["passed"] for x in out]) / len(out)
+    averaged_passed = sum([x["passed"] for x in out]) / len(out) if out else 0.0
     print(f"total runtime: {total_runtime}")
     print(f"average pass rate: {averaged_passed}")
-    logger.info("Evaluation complete: %d repos, avg pass rate %.2f%%, total runtime %.1fs", len(out), averaged_passed * 100, total_runtime)
+    logger.info(
+        "Evaluation complete: %d repos, avg pass rate %.2f%%, total runtime %.1fs",
+        len(out),
+        averaged_passed * 100,
+        total_runtime,
+    )
 
 
 __all__ = []

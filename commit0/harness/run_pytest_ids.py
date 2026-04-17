@@ -83,10 +83,14 @@ def main(
         ):
             spec = make_spec(example, dataset_type, absolute)
             break
-    assert spec is not None, "No spec available"
-    assert example is not None, "No example available"
-    assert repo_name is not None, "No repo available"
-    assert dataset_type is not None, "No dataset_type available"
+    if spec is None:
+        raise ValueError("No spec available")
+    if example is None:
+        raise ValueError("No example available")
+    if repo_name is None:
+        raise ValueError("No repo available")
+    if dataset_type is None:
+        raise ValueError("No dataset_type available")
 
     hashed_test_ids = get_hash_string(test_ids)
     # set up logging
@@ -107,10 +111,10 @@ def main(
             try:
                 local_repo = git.Repo(repo_dir)
                 logger.info(f"Retried succeeded. Loaded a git repo from {repo_dir}")
-            except git.exc.NoSuchPathError:  # type: ignore
+            except git.exc.NoSuchPathError as e:  # type: ignore
                 raise Exception(
                     f"{repo_dir} and {repo_or_repo_dir} are not git directories.\nUsage: commit0 test {{repo_dir}} {{branch}} {{test_ids}}"
-                )
+                ) from e
             except Exception as e:
                 raise e
         commit_id = ""
@@ -248,27 +252,33 @@ def main(
                     repo_name,
                     f"Test timed out after {timeout} seconds.",
                     logger,
+                    log_file=str(log_file),
                 )
         close_logger(logger)
         if verbose > 0:
             test_output = Path(log_dir / "test_output.txt")
             print(test_output.read_text())
-        pytest_exit_code = Path(log_dir / "pytest_exit_code.txt").read_text().strip()
-        sys.exit(int(pytest_exit_code))
+        pytest_exit_code = int(
+            Path(log_dir / "pytest_exit_code.txt").read_text().strip()
+        )
+        if pytest_exit_code != 0:
+            raise RuntimeError(f"Pytest exited with code {pytest_exit_code}")
     except EvaluationError as e:
         error_msg = (
             f"Error in running pytest for {repo_name}: {e}\n"
             f"{traceback.format_exc()}\n"
             f"Check ({log_file}) for more information."
         )
-        raise EvaluationError(repo_name, error_msg, logger)
+        raise EvaluationError(
+            repo_name, error_msg, logger, log_file=str(log_file)
+        ) from e
     except Exception as e:
         error_msg = (
             f"General error: {e}\n"
             f"{traceback.format_exc()}\n"
             f"Check ({log_file}) for more information."
         )
-        raise RuntimeError(error_msg)
+        raise RuntimeError(error_msg) from e
 
 
 __all__ = []
