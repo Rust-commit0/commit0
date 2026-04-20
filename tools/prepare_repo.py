@@ -39,6 +39,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -787,22 +788,79 @@ def _detect_python_version(repo_dir: Path) -> str | None:
 
 
 def _find_docs_url(repo_dir: Path, full_name: str) -> str:
-    """Try to find the documentation URL."""
-    # Check pyproject.toml for URLs
+    """Try to find a scrapeable documentation URL.
+
+    Returns empty string if no valid docs URL can be determined.
+    """
     pyproject = repo_dir / "pyproject.toml"
+    candidates: list[tuple[str, str]] = []
+    found_any_url = False
+
     if pyproject.exists():
         content = pyproject.read_text(errors="replace")
-        for pattern in [
-            r'[Dd]ocumentation\s*=\s*["\']([^"\']+)["\']',
-            r'[Hh]omepage\s*=\s*["\']([^"\']+)["\']',
-        ]:
-            m = re.search(pattern, content)
-            if m:
-                return m.group(1)
+        doc_match = re.search(
+            r'[Dd]ocumentation\s*=\s*["\']([^"\']+)["\']', content
+        )
+        if doc_match:
+            candidates.append((doc_match.group(1), "documentation"))
+            found_any_url = True
 
-    # Fallback to readthedocs
-    repo_name = full_name.split("/")[-1]
-    return f"https://{repo_name}.readthedocs.io/"
+        home_match = re.search(
+            r'[Hh]omepage\s*=\s*["\']([^"\']+)["\']', content
+        )
+        if home_match:
+            candidates.append((home_match.group(1), "homepage"))
+            found_any_url = True
+
+    if not found_any_url:
+        repo_name = full_name.split("/")[-1]
+        candidates.append((f"https://{repo_name}.readthedocs.io/", "readthedocs_guess"))
+
+    for url, source in candidates:
+        if not _is_scrapeable_url(url, source):
+            continue
+        return url
+
+    logger.warning("  No scrapeable docs URL found for %s", full_name)
+    return ""
+
+
+_BLOCKED_DOMAINS = frozenset(
+    ["github.com", "github.io", "gitlab.com", "bitbucket.org", "pypi.org"]
+)
+
+
+def _is_scrapeable_url(url: str, source: str) -> bool:
+    """Determine if a docs URL is likely to be successfully scraped."""
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+
+    # Reject code hosting sites — Playwright gets blocked by bot detection
+    if any(blocked in domain for blocked in _BLOCKED_DOMAINS):
+        logger.info("  Skipping %s URL (blocked domain): %s", source, url)
+        return False
+
+    # Homepage fallback is unreliable — often a marketing site, not docs
+    if source == "homepage":
+        logger.info("  Skipping homepage URL (unreliable for docs): %s", url)
+        return False
+
+    # readthedocs guess — verify it exists with a quick HEAD request
+    if source == "readthedocs_guess":
+        try:
+            import requests as _requests
+
+            resp = _requests.head(url, timeout=10, allow_redirects=True)
+            if resp.status_code >= 400:
+                logger.info(
+                    "  Skipping readthedocs guess (HTTP %d): %s", resp.status_code, url
+                )
+                return False
+        except Exception:
+            logger.info("  Skipping readthedocs guess (unreachable): %s", url)
+            return False
+
+    return True
 
 
 # ─── Dataset Entry ────────────────────────────────────────────────────────────

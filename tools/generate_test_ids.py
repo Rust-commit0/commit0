@@ -40,6 +40,33 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
+def _normalize_test_ids(test_ids: list[str], test_dir: str) -> list[str]:
+    """Ensure every test ID starts with the test_dir prefix.
+
+    pytest may output IDs relative to rootdir (which can be the test directory
+    itself if conftest.py lives there), stripping the test_dir prefix.
+    This normalizes all IDs to be relative to the repo root.
+
+    Example: test_dir="tests"
+      "test_align.py::test_foo" -> "tests/test_align.py::test_foo"
+      "tests/test_align.py::test_foo" -> unchanged
+    """
+    if not test_dir or test_dir == ".":
+        return test_ids
+
+    prefix = test_dir.rstrip("/") + "/"
+    normalized: list[str] = []
+    for tid in test_ids:
+        if not tid.strip():
+            continue
+        # Extract the file path part (before first ::)
+        file_part = tid.split("::")[0]
+        if not file_part.startswith(prefix) and not file_part.startswith("/"):
+            tid = prefix + tid
+        normalized.append(tid)
+    return normalized
+
+
 def _parse_collect_output(stdout: str) -> list[str]:
     """Parse pytest --collect-only output in any format (verbose or quiet).
 
@@ -432,6 +459,7 @@ def generate_for_dataset(
                 reference_commit=entry.get("reference_commit"),
                 timeout=timeout,
             )
+            test_ids = _normalize_test_ids(test_ids, test_dir)
         else:
             repo_dir = _find_repo_dir(clone_dir, repo, entry.get("original_repo", ""))
 
@@ -461,6 +489,7 @@ def generate_for_dataset(
                 test_dir=test_dir,
                 timeout=timeout,
             )
+            test_ids = _normalize_test_ids(test_ids, test_dir)
 
             if not test_ids:
                 docker_image = _find_docker_image(repo_name)
@@ -476,6 +505,7 @@ def generate_for_dataset(
                         reference_commit=entry.get("reference_commit"),
                         timeout=timeout,
                     )
+                    test_ids = _normalize_test_ids(test_ids, test_dir)
 
         if test_ids:
             out_file = save_test_ids(test_ids, repo_name, output_dir)

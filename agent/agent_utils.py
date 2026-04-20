@@ -43,6 +43,9 @@ def extract_function_stubs(file_path: Path) -> List[str]:
     Uses AST parsing instead of regex to avoid catastrophic backtracking
     on complex type annotations (e.g. typing.Callable[..., typing.Any]).
     """
+    if not file_path.exists():
+        logger.warning("File not found, skipping stub extraction: %s", file_path)
+        return []
     with open(file_path, "r") as file:
         content = file.read()
 
@@ -142,6 +145,9 @@ def get_dir_info(
 
 def get_file_info(file_path: Path, prefix: str = "") -> str:
     """Return the contents of a file with a given prefix."""
+    if not file_path.exists():
+        logger.warning("File not found, skipping: %s", file_path)
+        return ""
     tree_string = [tee + file_path.name]
     stubs = extract_function_stubs(file_path)
     for stub in stubs:

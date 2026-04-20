@@ -138,9 +138,22 @@ def run_agent_for_repo(
     )
     # Call the commit0 get-tests command to retrieve test files
     test_files_str = [xx for x in get_tests(repo_name, verbose=0) for xx in x]
-    test_files = sorted(
+    test_files_raw = sorted(
         list(set([i.split(":")[0] for i in test_files_str if i.strip()]))
     )
+    test_dir = example.get("test", {}).get("test_dir", "tests")
+    test_files = []
+    for tf in test_files_raw:
+        full_path = Path(repo_path) / tf
+        if full_path.exists():
+            test_files.append(tf)
+        elif (Path(repo_path) / test_dir / tf).exists():
+            resolved = os.path.join(test_dir, tf)
+            test_files.append(resolved)
+            logger.info("Resolved test file with prefix: %s -> %s", tf, resolved)
+        else:
+            logger.warning("Test file not found, skipping: %s", tf)
+    test_files.sort()
 
     # prepare the log dir — stable across retries (no timestamp)
     experiment_log_dir = _get_stable_log_dir(log_dir, repo_name, branch)

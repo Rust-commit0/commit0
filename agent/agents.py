@@ -299,7 +299,10 @@ def _apply_thinking_capture_patches(
     # with an interceptor that captures reasoning while passing chunks through.
 
     def _reasoning_interceptor(completion: Any) -> Any:
+        from litellm.types.utils import Delta, ModelResponseStream, StreamingChoices
+
         coder._last_reasoning_content = ""
+        saw_finish_reason = False
         for chunk in completion:
             try:
                 rc = chunk.choices[0].delta.reasoning_content
@@ -314,10 +317,26 @@ def _apply_thinking_capture_patches(
             if hasattr(chunk, "usage") and chunk.usage:
                 coder._last_completion_usage = chunk.usage
 
+            if (
+                not saw_finish_reason
+                and hasattr(chunk, "choices")
+                and chunk.choices
+                and chunk.choices[0].finish_reason
+            ):
+                saw_finish_reason = True
+
             yield chunk
 
         if not coder._last_reasoning_content:
             coder._last_reasoning_content = None
+
+        # Bedrock Converse streaming silently truncates at max_tokens without
+        # sending messageStop/stopReason. Inject a synthetic finish_reason so
+        # aider's FinishReasonLength handler triggers prefill continuation.
+        if not saw_finish_reason:
+            yield ModelResponseStream(
+                choices=[StreamingChoices(finish_reason="length", delta=Delta())]
+            )
 
     def patched_show_send_output_stream(completion: Any) -> Any:
         return _original_show_send_output_stream(_reasoning_interceptor(completion))

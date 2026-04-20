@@ -164,6 +164,21 @@ def _is_soft_404_content(html: str) -> bool:
     return False
 
 
+_CLOUDFLARE_MARKERS = (
+    "cdn-cgi/challenge-platform",
+    "cf-browser-verification",
+    "cf_chl_opt",
+    "Checking your browser",
+    "Attention Required! | Cloudflare",
+    "Just a moment...",
+    "_cf_chl_",
+)
+
+
+def _is_cloudflare_challenge(html: str) -> bool:
+    return any(marker in html for marker in _CLOUDFLARE_MARKERS)
+
+
 def _remove_blank_pages(pdf_path: str) -> None:
     document = fitz.open(pdf_path)
     if document.page_count < 2:
@@ -330,6 +345,10 @@ def _crawl_website(
                 continue
 
             content = page.content()
+
+            if _is_cloudflare_challenge(content):
+                logger.warning("  Cloudflare challenge detected, aborting crawl: %s", current_url)
+                break
 
             if _is_soft_404_content(content):
                 logger.info("  Soft-404 detected, skipping: %s", current_url)
