@@ -1,0 +1,23 @@
+[
+  {
+    "instance_id": "commit-0/grex",
+    "repo": "Rust-commit0/grex",
+    "original_repo": "pemistahl/grex",
+    "base_commit": "4263e3117a03f9cb838a32fbb034397638dae265",
+    "reference_commit": "99cc347707375e00514f938b76d885a201dfc110",
+    "setup": {
+      "rust": "stable",
+      "edition": "2021",
+      "packages": "pkg-config libssl-dev",
+      "pre_install": [],
+      "install": "cargo fetch",
+      "specification": "grex.pdf.bz2"
+    },
+    "test": {
+      "test_cmd": "cargo test -p grex",
+      "test_dir": "grex"
+    },
+    "src_dir": "src",
+    "language": "rust"
+  }
+]
