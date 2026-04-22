@@ -56,8 +56,8 @@ TOOLS_DIR = Path(__file__).parent
 PROJECT_ROOT = TOOLS_DIR.parent
 RUSTSTUBBER = TOOLS_DIR / "ruststubber" / "target" / "release" / "ruststubber"
 DATA_DIR = PROJECT_ROOT / "commit0" / "data"
-DATASET_FILE = DATA_DIR / "rust_dataset.json"
 TEST_IDS_DIR = DATA_DIR / "rust_test_ids"
+SPECS_DIR = PROJECT_ROOT / "specs_rust"
 
 # GitHub org to fork repos into
 DEFAULT_ORG = "Rust-commit0"
@@ -369,13 +369,21 @@ def create_dataset_entry(
     }
 
 
-def append_to_dataset(entry: dict) -> None:
-    """Append entry to rust_dataset.json (creates or appends to array)."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def get_dataset_path(repo_name: str) -> Path:
+    """Return the per-repo dataset file path: PROJECT_ROOT/<reponame>_dataset.json."""
+    return PROJECT_ROOT / f"{repo_name}_dataset.json"
+
+
+def append_to_dataset(entry: dict, repo_name: str) -> Path:
+    """Write entry to <reponame>_dataset.json in project root.
+
+    Returns the dataset file path.
+    """
+    dataset_file = get_dataset_path(repo_name)
 
     existing = []
-    if DATASET_FILE.exists():
-        raw = DATASET_FILE.read_text().strip()
+    if dataset_file.exists():
+        raw = dataset_file.read_text().strip()
         if raw:
             data = json.loads(raw)
             if isinstance(data, list):
@@ -387,36 +395,41 @@ def append_to_dataset(entry: dict) -> None:
     existing = [e for e in existing if e.get("instance_id") != entry["instance_id"]]
     existing.append(entry)
 
-    DATASET_FILE.write_text(json.dumps(existing, indent=2) + "\n")
-    logger.info(
-        "Updated %s (%d entries)", DATASET_FILE, len(existing)
-    )
+    content = json.dumps(existing, indent=2) + "\n"
+    dataset_file.write_text(content)
+    logger.info("Updated %s (%d entries)", dataset_file, len(existing))
+
+    entries_file = PROJECT_ROOT / f"{repo_name}_entries.json"
+    entries_file.write_text(content)
+    logger.info("Updated %s", entries_file)
+
+    return dataset_file
 
 
 # ─── Per-Repo YAML Config ───────────────────────────────────────────────────
 
 
-def generate_per_repo_yaml(crate: str, entry: dict) -> Path:
-    """Generate per-repo YAML config in commit0/data/<crate>.yaml."""
-    yaml_path = DATA_DIR / f"{crate}.yaml"
-    fork_name = entry["repo"]
+def generate_commit0_yaml(crate: str, repo_name: str, entry: dict) -> Path:
+    """Generate .commit0.yaml in project root (single config file, overwritten each run)."""
+    yaml_path = PROJECT_ROOT / ".commit0.yaml"
+    dataset_file = f"./{repo_name}_dataset.json"
 
     content = f"""# commit0 Rust config for {crate}
-dataset_name: commit0/data/rust_dataset.json
+dataset_name: {dataset_file}
 dataset_split: test
 repo_split: all
 base_dir: repos
 
 # Repo details
 # upstream: {entry["original_repo"]}
-# fork: {fork_name}
+# fork: {entry["repo"]}
 # crate: {crate}
 # language: rust
 # test_cmd: {entry["test"]["test_cmd"]}
 # src_dir: {entry["src_dir"]}
 """
     yaml_path.write_text(content)
-    logger.info("Generated per-repo config: %s", yaml_path)
+    logger.info("Generated config: %s", yaml_path)
     return yaml_path
 
 
@@ -500,6 +513,11 @@ def prepare_rust_repo(
             spec_filename = spec_path.name
             git(repo_dir, "add", spec_filename)
             git(repo_dir, "commit", "-m", f"Add {crate} API spec (docs.rs PDF)")
+            # Save a local copy to specs_rust/
+            SPECS_DIR.mkdir(parents=True, exist_ok=True)
+            local_spec = SPECS_DIR / spec_filename
+            shutil.copy2(str(spec_path), str(local_spec))
+            logger.info("Local spec copy: %s", local_spec)
     else:
         logger.info("Skipping spec generation (--skip-spec)")
 
@@ -533,15 +551,15 @@ def prepare_rust_repo(
     )
 
     if not dry_run:
-        append_to_dataset(entry)
+        append_to_dataset(entry, repo_name)
     else:
         logger.info("[DRY RUN] Dataset entry:\n%s", json.dumps(entry, indent=2))
 
-    # Step 11: Generate per-repo YAML
+    # Step 11: Generate .commit0.yaml
     if not dry_run:
-        generate_per_repo_yaml(crate, entry)
+        generate_commit0_yaml(crate, repo_name, entry)
     else:
-        logger.info("[DRY RUN] Would generate %s/%s.yaml", DATA_DIR, crate)
+        logger.info("[DRY RUN] Would generate .commit0.yaml")
 
     logger.info("=" * 60)
     logger.info("SUCCESS: %s prepared", crate)
