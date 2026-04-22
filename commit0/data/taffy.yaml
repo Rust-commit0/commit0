@@ -1,0 +1,13 @@
+# commit0 Rust config for taffy
+dataset_name: ./taffy_dataset.json
+dataset_split: test
+repo_split: all
+base_dir: repos
+
+# Repo details
+# upstream: DioxusLabs/taffy
+# fork: Rust-commit0/taffy
+# crate: taffy
+# language: rust
+# test_cmd: cargo test -p taffy
+# src_dir: src
