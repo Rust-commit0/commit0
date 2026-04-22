@@ -100,12 +100,12 @@ def parse_csv(csv_path: Path) -> list[dict[str, str]]:
 
 def load_state(state_path: Path) -> dict[str, dict]:
     if state_path.exists():
-        return json.loads(state_path.read_text())
+        return json.loads(state_path.read_text(encoding="utf-8"))
     return {}
 
 
 def save_state(state_path: Path, state: dict[str, dict]) -> None:
-    state_path.write_text(json.dumps(state, indent=2))
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 def _get_latest_tag(repo_dir: Path) -> str | None:
@@ -319,7 +319,7 @@ def add_gitignore_entries(repos_dir: Path, repo_name: str) -> bool:
         return False
 
     gitignore = repo_dir / ".gitignore"
-    existing = gitignore.read_text() if gitignore.exists() else ""
+    existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
     added = False
     for entry in GITIGNORE_ENTRIES:
         if entry not in existing:
@@ -327,7 +327,7 @@ def add_gitignore_entries(repos_dir: Path, repo_name: str) -> bool:
             added = True
 
     if added:
-        gitignore.write_text(existing.rstrip() + "\n")
+        gitignore.write_text(existing.rstrip() + "\n", encoding="utf-8")
         _run(["git", "add", ".gitignore"], cwd=repo_dir)
         _run(
             ["git", "commit", "-m", "Add .aider* and logs/ to .gitignore"], cwd=repo_dir
@@ -596,7 +596,7 @@ Examples:
         logger.error("No repos prepared successfully")
         return
 
-    output_path.write_text(json.dumps(entries, indent=2))
+    output_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
     logger.info("\nSaved %d entries to %s", len(entries), output_path)
 
     test_id_results: dict[str, int] = {}

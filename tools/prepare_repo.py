@@ -129,13 +129,22 @@ def fork_repo(full_name: str, org: str, token: str | None = None) -> str:
 
     # Create fork
     logger.info("  Forking %s to %s...", full_name, org)
-    subprocess.run(
-        ["gh", "repo", "fork", full_name, "--org", org, "--clone=false"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["gh", "repo", "fork", full_name, "--org", org, "--clone=false"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logger.error(
+            "Fork failed for %s (exit %d): %s",
+            full_name,
+            e.returncode,
+            (e.stderr or e.stdout or "no output").strip(),
+        )
+        raise
 
     # Wait for fork to be available
     for _ in range(10):
@@ -372,7 +381,7 @@ def create_stubbed_branch(
             result = stubber.transform_source(original, str(rel))
 
             if result is not None and result != original:
-                py_file.write_text(result)
+                py_file.write_text(result, encoding="utf-8")
                 stubbed_count += 1
         except Exception as e:
             logger.warning("  Error stubbing %s: %s", rel, e)
@@ -772,7 +781,7 @@ def _detect_python_version(repo_dir: Path) -> str | None:
 
     pyver_file = repo_dir / ".python-version"
     if required_min is None and pyver_file.exists():
-        raw = pyver_file.read_text().strip().split(".")[0:2]
+        raw = pyver_file.read_text(encoding="utf-8").strip().split(".")[0:2]
         if len(raw) == 2 and raw[0].isdigit() and raw[1].isdigit():
             required_min = (int(raw[0]), int(raw[1]))
 
@@ -974,7 +983,15 @@ def prepare_repos(
         )
     entries: list[dict] = []
 
-    _get_scrape_func()
+    try:
+        _get_scrape_func()
+    except ImportError as e:
+        logger.warning(
+            "Spec scraping dependencies not installed (%s). "
+            "Datasets will be created without spec PDFs. "
+            "Install with: pip install playwright PyMuPDF PyPDF2 beautifulsoup4 requests",
+            e,
+        )
 
     for i, candidate in enumerate(candidates):
         if max_repos and i >= max_repos:
@@ -1057,7 +1074,7 @@ def prepare_repos(
 
         # Scrape spec PDF and commit into repo
         spec_path = None
-        if setup_dict.get("specification"):
+        if setup_dict.get("specification") and not dry_run:
             repo_name = full_name.split("/")[-1]
             docs_url = setup_dict["specification"]
             logger.info("  Scraping spec from: %s", docs_url)
@@ -1239,7 +1256,7 @@ def main() -> None:
             }
         ]
     elif args.validated_file:
-        candidates = json.loads(Path(args.validated_file).read_text())
+        candidates = json.loads(Path(args.validated_file).read_text(encoding="utf-8"))
     else:
         parser.error("Provide either validated_file or --repo")
         return
@@ -1265,7 +1282,7 @@ def main() -> None:
 
     # Save entries
     output_path = Path(args.output)
-    output_path.write_text(json.dumps(entries, indent=2))
+    output_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
     logger.info("Saved %d entries to %s", len(entries), output_path)
 
     print_entries_summary(entries)

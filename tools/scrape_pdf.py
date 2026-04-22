@@ -188,28 +188,32 @@ def _remove_blank_pages(pdf_path: str) -> None:
     output_document = fitz.open()
     removed_captcha = 0
     removed_soft_404 = 0
-    for i in range(document.page_count):
-        page = document.load_page(i)
-        if _is_page_blank(page):
-            continue
-        if _is_captcha_page(page):
-            removed_captcha += 1
-            continue
-        if _is_soft_404_page(page):
-            removed_soft_404 += 1
-            continue
-        output_document.insert_pdf(document, from_page=i, to_page=i)
+    try:
+        for i in range(document.page_count):
+            page = document.load_page(i)
+            if _is_page_blank(page):
+                continue
+            if _is_captcha_page(page):
+                removed_captcha += 1
+                continue
+            if _is_soft_404_page(page):
+                removed_soft_404 += 1
+                continue
+            output_document.insert_pdf(document, from_page=i, to_page=i)
 
-    if removed_captcha:
-        logger.info(
-            "  Removed %d captcha/bot-check page(s) from %s", removed_captcha, pdf_path
-        )
-    if removed_soft_404:
-        logger.info("  Removed %d soft-404 page(s) from %s", removed_soft_404, pdf_path)
+        if removed_captcha:
+            logger.info(
+                "  Removed %d captcha/bot-check page(s) from %s", removed_captcha, pdf_path
+            )
+        if removed_soft_404:
+            logger.info("  Removed %d soft-404 page(s) from %s", removed_soft_404, pdf_path)
 
-    output_document.save(pdf_path)
-    output_document.close()
-    document.close()
+        document.close()
+        output_document.save(pdf_path)
+    finally:
+        output_document.close()
+        if not document.is_closed:
+            document.close()
 
 
 def _clean_pdf_directory(docs: list[str]) -> None:
@@ -400,6 +404,12 @@ def scrape_spec(
     if _MISSING_DEPS:
         raise ImportError(_MISSING_DEP_MSG)
 
+    blocked = {"github.com", "github.io", "gitlab.com", "bitbucket.org", "pypi.org"}
+    domain = urlparse(base_url).netloc.lower()
+    if any(domain == b or domain.endswith("." + b) for b in blocked):
+        logger.warning("  Blocked domain %s — skipping spec scrape for %s", domain, name)
+        return None
+
     os.makedirs(output_dir, exist_ok=True)
     pages_dir = os.path.join(output_dir, f"{name}_pages")
     final_pdf = os.path.join(output_dir, f"{name}.pdf")
@@ -490,7 +500,7 @@ def main() -> None:
             exit(1)
 
     elif args.input:
-        entries = json.loads(Path(args.input).read_text())
+        entries = json.loads(Path(args.input).read_text(encoding="utf-8"))
 
         if isinstance(entries, dict) and "data" in entries:
             entries = entries["data"]

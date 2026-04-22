@@ -148,7 +148,7 @@ def get_stage_cost(stage_dir):
     for log in stage_dir.rglob("aider.log"):
         try:
             last = None
-            with open(log, errors="replace") as f:
+            with open(log, encoding="utf-8", errors="replace") as f:
                 for line in f:
                     m = COST_RE.search(line)
                     if m:
@@ -179,7 +179,7 @@ def get_elapsed(log_path, end_time_str=None):
     if not log_path or not log_path.exists():
         return ""
     try:
-        with open(log_path, errors="replace") as f:
+        with open(log_path, encoding="utf-8", errors="replace") as f:
             first = f.readline()
         m = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", first)
         if m:
@@ -374,7 +374,7 @@ def build_all(console_width):
     results = None
     if PIPELINE_LOG.exists():
         try:
-            with open(PIPELINE_LOG) as f:
+            with open(PIPELINE_LOG, encoding="utf-8") as f:
                 results = json.load(f)
         except (json.JSONDecodeError, OSError):
             pass

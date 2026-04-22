@@ -541,7 +541,7 @@ def main() -> None:
 
     if args.search_only:
         output_path = Path(args.output)
-        output_path.write_text(json.dumps(repos, indent=2))
+        output_path.write_text(json.dumps(repos, indent=2), encoding="utf-8")
         print(f"Saved {len(repos)} repos to {output_path}")
         print_summary(repos)
         return
@@ -557,7 +557,7 @@ def main() -> None:
 
     # Phase 3: Output
     output_path = Path(args.output)
-    output_path.write_text(json.dumps(candidates, indent=2))
+    output_path.write_text(json.dumps(candidates, indent=2), encoding="utf-8")
     logger.info("Saved %d candidates to %s", len(candidates), output_path)
 
     print_summary(candidates)

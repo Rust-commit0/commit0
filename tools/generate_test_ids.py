@@ -425,7 +425,7 @@ def generate_for_dataset(
     validate_base: bool = False,
 ) -> dict[str, int]:
     """Generate test IDs for all repos in a dataset entries JSON file."""
-    data = json.loads(dataset_path.read_text())
+    data = json.loads(dataset_path.read_text(encoding="utf-8"))
 
     if isinstance(data, dict) and "data" in data:
         entries = data["data"]

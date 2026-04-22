@@ -835,7 +835,7 @@ def main() -> None:
             }
         ]
     elif args.candidates_file:
-        candidates = json.loads(Path(args.candidates_file).read_text())
+        candidates = json.loads(Path(args.candidates_file).read_text(encoding="utf-8"))
     else:
         parser.error("Provide either candidates_file or --repo")
         return
@@ -862,7 +862,7 @@ def main() -> None:
 
         # Save results
         output_path = Path(args.output)
-        output_path.write_text(json.dumps(results, indent=2, default=str))
+        output_path.write_text(json.dumps(results, indent=2, default=str), encoding="utf-8")
         logger.info("Saved %d results to %s", len(results), output_path)
 
         print_validation_summary(results)

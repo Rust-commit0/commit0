@@ -262,7 +262,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Load entries
-    entries = json.loads(Path(args.entries_file).read_text())
+    entries = json.loads(Path(args.entries_file).read_text(encoding="utf-8"))
     logger.info("Loaded %d entries from %s", len(entries), args.entries_file)
 
     # Validate
@@ -280,7 +280,7 @@ def main() -> None:
 
     # Save local dataset
     output_path = Path(args.output)
-    output_path.write_text(json.dumps(hf_entries, indent=2))
+    output_path.write_text(json.dumps(hf_entries, indent=2), encoding="utf-8")
     logger.info("Saved dataset to %s", output_path)
 
     # Print summary
@@ -295,7 +295,7 @@ def main() -> None:
     if args.patch_constants:
         constants_code = generate_split_constants(valid, args.split_name)
         constants_file = Path(f"split_{args.split_name}.py")
-        constants_file.write_text(constants_code)
+        constants_file.write_text(constants_code, encoding="utf-8")
         logger.info("SPLIT constants written to %s", constants_file)
         print(f"\n# Add to commit0/harness/constants.py:\n{constants_code}\n")
 
@@ -303,7 +303,7 @@ def main() -> None:
     if args.generate_yaml:
         yaml_content = generate_commit0_yaml(valid, args.split_name, args.hf_repo)
         yaml_file = Path(f".commit0.{args.split_name}.yaml")
-        yaml_file.write_text(yaml_content)
+        yaml_file.write_text(yaml_content, encoding="utf-8")
         logger.info("Config written to %s", yaml_file)
         print(yaml_content)
 
