@@ -27,8 +27,12 @@ RUST_VERSION = "stable"
 # Marker used to identify stub functions in Rust source
 RUST_STUB_MARKER = 'todo!("STUB")'
 
-# Repo split mapping (empty placeholder for future Rust repos)
-RUST_SPLIT: Dict[str, list[str]] = {}
+# Repo split mapping for Rust repos
+RUST_SPLIT: Dict[str, list[str]] = {
+    "all": [
+        "Rust-commit0/opentelemetry-rust",
+    ],
+}
 
 # cargo-nextest version for test execution
 CARGO_NEXTEST_VERSION = "0.9.96"
