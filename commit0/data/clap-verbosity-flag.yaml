@@ -1,0 +1,13 @@
+# commit0 Rust config for clap-verbosity-flag
+dataset_name: commit0/data/rust_dataset.json
+dataset_split: test
+repo_split: all
+base_dir: repos
+
+# Repo details
+# upstream: clap-rs/clap-verbosity-flag
+# fork: Rust-commit0/clap-verbosity-flag
+# crate: clap-verbosity-flag
+# language: rust
+# test_cmd: cargo test -p clap-verbosity-flag
+# src_dir: src

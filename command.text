@@ -1,0 +1,5 @@
+python3 -m tools.prepare_repo_rust \
+  --upstream <OWNER/REPO> \
+  --crate <CRATE_NAME> \
+  --src-dir <CRATE_NAME/src> \
+  --test-cmd "cargo test -p <CRATE_NAME>" 
