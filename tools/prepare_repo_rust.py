@@ -370,8 +370,8 @@ def create_dataset_entry(
 
 
 def get_dataset_path(repo_name: str) -> Path:
-    """Return the per-repo dataset file path: PROJECT_ROOT/<reponame>_dataset.json."""
-    return PROJECT_ROOT / f"{repo_name}_dataset.json"
+    """Return the per-repo dataset file path: PROJECT_ROOT/<reponame>_rust_dataset.json."""
+    return PROJECT_ROOT / f"{repo_name}_rust_dataset.json"
 
 
 def append_to_dataset(entry: dict, repo_name: str) -> Path:
@@ -399,7 +399,7 @@ def append_to_dataset(entry: dict, repo_name: str) -> Path:
     dataset_file.write_text(content)
     logger.info("Updated %s (%d entries)", dataset_file, len(existing))
 
-    entries_file = PROJECT_ROOT / f"{repo_name}_entries.json"
+    entries_file = PROJECT_ROOT / f"{repo_name}_rust_entries.json"
     entries_file.write_text(content)
     logger.info("Updated %s", entries_file)
 
@@ -410,9 +410,9 @@ def append_to_dataset(entry: dict, repo_name: str) -> Path:
 
 
 def generate_commit0_yaml(crate: str, repo_name: str, entry: dict) -> Path:
-    """Generate .commit0.yaml in project root (single config file, overwritten each run)."""
-    yaml_path = PROJECT_ROOT / ".commit0.yaml"
-    dataset_file = f"./{repo_name}_dataset.json"
+    """Generate .commit0_rust.yaml in project root (single config file, overwritten each run)."""
+    yaml_path = PROJECT_ROOT / ".commit0_rust.yaml"
+    dataset_file = f"./{repo_name}_rust_dataset.json"
 
     content = f"""# commit0 Rust config for {crate}
 dataset_name: {dataset_file}
