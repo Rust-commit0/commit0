@@ -197,3 +197,9 @@ docs/pipeline-architecture.md
 docs/repo-selection-checklist.md
 scripts/
 .DS_Store
+
+# Rust pipeline local artifacts
+*_rust_dataset.json
+*_rust_entries.json
+specs_rust/
+flow.md
