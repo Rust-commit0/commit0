@@ -17,6 +17,7 @@ __all__ = [
     "CARGO_NEXTEST_VERSION",
     "RUN_RUST_TESTS_LOG_DIR",
     "RUST_TEST_IDS_DIR",
+    "DOCKERFILES_RUST_DIR",
     "DOCKERFILES_DIR",
     "TestStatus",
 ]
@@ -42,6 +43,9 @@ RUN_RUST_TESTS_LOG_DIR = Path("logs/rust_tests")
 
 # Directory containing per-repo Rust test IDs
 RUST_TEST_IDS_DIR = Path(__file__).parent.parent / "data" / "rust_test_ids"
+
+# Directory containing Rust Dockerfile templates
+DOCKERFILES_RUST_DIR = Path(__file__).parent / "dockerfiles"
 
 
 class RustRepoInstance(RepoInstance):
