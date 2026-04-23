@@ -57,6 +57,7 @@ PROJECT_ROOT = TOOLS_DIR.parent
 RUSTSTUBBER = TOOLS_DIR / "ruststubber" / "target" / "release" / "ruststubber"
 DATA_DIR = PROJECT_ROOT / "commit0" / "data"
 TEST_IDS_DIR = DATA_DIR / "rust_test_ids"
+CONSTANTS_RUST_FILE = PROJECT_ROOT / "commit0" / "harness" / "constants_rust.py"
 SPECS_DIR = PROJECT_ROOT / "specs_rust"
 
 # GitHub org to fork repos into
@@ -406,6 +407,37 @@ def append_to_dataset(entry: dict, repo_name: str) -> Path:
     return dataset_file
 
 
+def update_rust_split(fork_name: str) -> None:
+    """Add fork_name to RUST_SPLIT['all'] in constants_rust.py if not present."""
+    if not CONSTANTS_RUST_FILE.exists():
+        logger.warning("constants_rust.py not found at %s, skipping RUST_SPLIT update", CONSTANTS_RUST_FILE)
+        return
+
+    content = CONSTANTS_RUST_FILE.read_text()
+
+    if f'"{fork_name}"' in content:
+        logger.info("RUST_SPLIT already contains %s", fork_name)
+        return
+
+    # Regex: capture RUST_SPLIT's "all" list contents to append a new entry before closing ]
+    pattern = r'(RUST_SPLIT:\s*Dict\[str,\s*list\[str\]\]\s*=\s*\{[^}]*"all":\s*\[)(.*?)(\s*\],)'
+    match = re.search(pattern, content, re.DOTALL)
+    if not match:
+        logger.warning("Could not parse RUST_SPLIT in constants_rust.py, skipping update")
+        return
+
+    before = match.group(1)
+    existing_entries = match.group(2)
+    after = match.group(3)
+
+    # Build new entry line with proper indentation
+    new_entry = f'\n        "{fork_name}",'
+    new_content = content[:match.start()] + before + existing_entries + new_entry + after + content[match.end():]
+
+    CONSTANTS_RUST_FILE.write_text(new_content)
+    logger.info("Added %s to RUST_SPLIT in %s", fork_name, CONSTANTS_RUST_FILE)
+
+
 # ─── Per-Repo YAML Config ───────────────────────────────────────────────────
 
 
@@ -552,6 +584,7 @@ def prepare_rust_repo(
 
     if not dry_run:
         append_to_dataset(entry, repo_name)
+        update_rust_split(fork_name)
     else:
         logger.info("[DRY RUN] Dataset entry:\n%s", json.dumps(entry, indent=2))
 

@@ -31,7 +31,12 @@ RUST_STUB_MARKER = 'todo!("STUB")'
 # Repo split mapping for Rust repos
 RUST_SPLIT: Dict[str, list[str]] = {
     "all": [
-        "Rust-commit0/opentelemetry-rust",
+        "Rust-commit0/taffy",
+        "Rust-commit0/bon",
+        "Rust-commit0/grex",
+        "Rust-commit0/tide",
+        "Rust-commit0/ocrs",
+        "Rust-commit0/gimli",
     ],
 }
 
