@@ -203,3 +203,6 @@ scripts/
 *_rust_entries.json
 specs_rust/
 flow.md
+command.txt
+changelog_*.md
+help-text.txt
