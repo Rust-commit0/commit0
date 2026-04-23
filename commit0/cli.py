@@ -4,13 +4,17 @@ from pathlib import Path
 from typing import Union, List
 from typing_extensions import Annotated
 import commit0.harness.run_pytest_ids
+import commit0.harness.run_rust_tests
 import commit0.harness.get_pytest_ids
 import commit0.harness.build
+import commit0.harness.build_rust
 import commit0.harness.setup
 import commit0.harness.evaluate
 import commit0.harness.lint
+import commit0.harness.lint_rust
 import commit0.harness.save
 from commit0.harness.constants import SPLIT, SPLIT_ALL
+from commit0.harness.constants_rust import RUST_SPLIT
 from commit0.harness.utils import get_active_branch
 import subprocess
 import yaml
@@ -162,11 +166,15 @@ def setup(
     commit0_config_file: str = typer.Option(
         ".commit0.yaml", help="Storing path for stateful commit0 configs"
     ),
+    language: str = typer.Option(
+        "python", help="Language of the target repositories (python or rust)"
+    ),
 ) -> None:
     """Commit0 clone a repo split."""
     check_commit0_path()
+    split_dict = RUST_SPLIT if language == "rust" else SPLIT
     if "commit0" in dataset_name.split("/")[-1].lower():
-        check_valid(repo_split, SPLIT)
+        check_valid(repo_split, split_dict)
 
     base_dir = str(Path(base_dir).resolve())
     # Resolve local JSON files to absolute paths, but don't touch HuggingFace identifiers.
@@ -200,6 +208,7 @@ def setup(
             "dataset_split": dataset_split,
             "repo_split": repo_split,
             "base_dir": base_dir,
+            "language": language,
         },
     )
 
@@ -235,8 +244,10 @@ def build(
     check_commit0_path()
 
     commit0_config = read_commit0_config_file(commit0_config_file)
+    config_language = commit0_config.get("language", "python")
+    build_split = RUST_SPLIT if config_language == "rust" else SPLIT
     if "commit0" in commit0_config["dataset_name"].split("/")[-1].lower():
-        check_valid(commit0_config["repo_split"], SPLIT)
+        check_valid(commit0_config["repo_split"], build_split)
 
     typer.echo(
         f"Building repository for split: {highlight(commit0_config['repo_split'], Colors.ORANGE)}"
@@ -249,13 +260,20 @@ def build(
     )
     typer.echo(f"Number of workers: {highlight(str(num_workers), Colors.ORANGE)}")
 
-    commit0.harness.build.main(
-        commit0_config["dataset_name"],
-        commit0_config["dataset_split"],
-        commit0_config["repo_split"],
-        num_workers,
-        verbose,
-    )
+    if config_language == "rust":
+        commit0.harness.build_rust.main(
+            commit0_config["dataset_name"],
+            num_workers,
+            verbose,
+        )
+    else:
+        commit0.harness.build.main(
+            commit0_config["dataset_name"],
+            commit0_config["dataset_split"],
+            commit0_config["repo_split"],
+            num_workers,
+            verbose,
+        )
 
 
 @commit0_app.command()
@@ -315,10 +333,12 @@ def test(
     """Run tests on a Commit0 repository."""
     check_commit0_path()
     commit0_config = read_commit0_config_file(commit0_config_file)
+    config_language = commit0_config.get("language", "python")
+    test_split = RUST_SPLIT if config_language == "rust" else SPLIT
     if repo_or_repo_path.endswith("/"):
         repo_or_repo_path = repo_or_repo_path[:-1]
     if "commit0" in commit0_config["dataset_name"].split("/")[-1].lower():
-        check_valid(repo_or_repo_path.split("/")[-1], SPLIT)
+        check_valid(repo_or_repo_path.split("/")[-1], test_split)
 
     if reference:
         branch = "reference"
@@ -351,20 +371,35 @@ def test(
         typer.echo(f"Branch: {branch}")
         typer.echo(f"Test IDs: {test_ids}")
 
-    commit0.harness.run_pytest_ids.main(
-        commit0_config["dataset_name"],
-        commit0_config["dataset_split"],
-        commit0_config["base_dir"],
-        repo_or_repo_path,
-        branch,  # type: ignore
-        test_ids,
-        coverage,
-        backend,
-        timeout,
-        num_cpus,
-        rebuild,
-        verbose,
-    )
+    if config_language == "rust":
+        commit0.harness.run_rust_tests.main(
+            commit0_config["dataset_name"],
+            commit0_config["dataset_split"],
+            commit0_config["base_dir"],
+            repo_or_repo_path,
+            branch,  # type: ignore
+            test_ids,
+            backend,
+            timeout,
+            num_cpus,
+            rebuild,
+            verbose,
+        )
+    else:
+        commit0.harness.run_pytest_ids.main(
+            commit0_config["dataset_name"],
+            commit0_config["dataset_split"],
+            commit0_config["base_dir"],
+            repo_or_repo_path,
+            branch,  # type: ignore
+            test_ids,
+            coverage,
+            backend,
+            timeout,
+            num_cpus,
+            rebuild,
+            verbose,
+        )
 
 
 @commit0_app.command()
@@ -394,8 +429,10 @@ def evaluate(
         branch = "reference"
 
     commit0_config = read_commit0_config_file(commit0_config_file)
+    config_language = commit0_config.get("language", "python")
+    eval_split = RUST_SPLIT if config_language == "rust" else SPLIT
     if "commit0" in commit0_config["dataset_name"].split("/")[-1].lower():
-        check_valid(commit0_config["repo_split"], SPLIT)
+        check_valid(commit0_config["repo_split"], eval_split)
 
     typer.echo(f"Evaluating repository split: {commit0_config['repo_split']}")
     typer.echo(f"Branch: {branch}")
@@ -412,6 +449,7 @@ def evaluate(
         num_cpus,
         num_workers,
         rebuild,
+        language=config_language,
     )
 
 
@@ -438,6 +476,7 @@ def lint(
     """Lint given files if provided, otherwise lint all files in the base directory."""
     check_commit0_path()
     commit0_config = read_commit0_config_file(commit0_config_file)
+    config_language = commit0_config.get("language", "python")
     appended_files = None
     if files is not None:
         appended_files = []
@@ -448,13 +487,18 @@ def lint(
             appended_files.append(path)
     if verbose == 2:
         typer.echo(f"Linting repo: {highlight(str(repo_or_repo_dir), Colors.ORANGE)}")
-    commit0.harness.lint.main(
-        commit0_config["dataset_name"],
-        commit0_config["dataset_split"],
-        repo_or_repo_dir,
-        appended_files,
-        commit0_config["base_dir"],
-    )
+    if config_language == "rust":
+        repo_path = os.path.join(commit0_config["base_dir"], repo_or_repo_dir)
+        rust_files = [str(f) for f in appended_files] if appended_files else None
+        commit0.harness.lint_rust.main(repo_path, rust_files)
+    else:
+        commit0.harness.lint.main(
+            commit0_config["dataset_name"],
+            commit0_config["dataset_split"],
+            repo_or_repo_dir,
+            appended_files,
+            commit0_config["base_dir"],
+        )
 
 
 @commit0_app.command()
@@ -470,8 +514,10 @@ def save(
     """Save Commit0 split you choose in Setup Stage to GitHub."""
     check_commit0_path()
     commit0_config = read_commit0_config_file(commit0_config_file)
+    config_language = commit0_config.get("language", "python")
+    save_split = RUST_SPLIT if config_language == "rust" else SPLIT
     if "commit0" in commit0_config["dataset_name"].split("/")[-1].lower():
-        check_valid(commit0_config["repo_split"], SPLIT)
+        check_valid(commit0_config["repo_split"], save_split)
 
     typer.echo(f"Saving repository split: {commit0_config['repo_split']}")
     typer.echo(f"Owner: {owner}")
@@ -486,6 +532,45 @@ def save(
         branch,
         github_token,
     )
+
+
+@commit0_app.command(name="lint-rust")
+def lint_rust(
+    repo_or_repo_dir: str = typer.Argument(
+        ..., help="Directory of the Rust repository to lint"
+    ),
+    files: Union[List[Path], None] = typer.Option(
+        None,
+        help="Specific .rs files to lint. If not provided, all files will be linted.",
+    ),
+    commit0_config_file: str = typer.Option(
+        ".commit0.yaml",
+        help="Path to the commit0 dot file, where the setup config is stored",
+    ),
+    verbose: int = typer.Option(
+        1,
+        "--verbose",
+        "-v",
+        help="Set this to 2 for more logging information",
+        count=True,
+    ),
+) -> None:
+    check_commit0_path()
+    commit0_config = read_commit0_config_file(commit0_config_file)
+    repo_path = os.path.join(commit0_config["base_dir"], repo_or_repo_dir)
+    rust_files = None
+    if files is not None:
+        rust_files = []
+        for path in files:
+            full_path = Path(repo_path) / path
+            if not full_path.is_file():
+                raise FileNotFoundError(f"File not found: {str(full_path)}")
+            rust_files.append(str(full_path))
+    if verbose == 2:
+        typer.echo(
+            f"Linting Rust repo: {highlight(str(repo_or_repo_dir), Colors.ORANGE)}"
+        )
+    commit0.harness.lint_rust.main(repo_path, rust_files)
 
 
 __all__ = []
