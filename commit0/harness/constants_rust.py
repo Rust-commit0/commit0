@@ -45,6 +45,8 @@ RUST_SPLIT: Dict[str, list[str]] = {
         "Rust-commit0/tide",
         "Rust-commit0/ocrs",
         "Rust-commit0/gimli",
+        "Rust-commit0/Spartan",
+        "Rust-commit0/ta-rs",
     ],
 }
 

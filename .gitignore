@@ -208,3 +208,5 @@ flow.md
 *dataset*.json
 *.bz2
 tokio.yaml
+changelog_*.md
+help-text.txt

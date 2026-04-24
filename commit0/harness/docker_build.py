@@ -134,7 +134,7 @@ def _multiarch_builder_args() -> list[str]:
         return []  # best-effort: let buildx figure it out
 
 
-def _ensure_oci_layout(oci_tar: Path) -> Path | None:
+def _ensure_oci_layout(oci_tar: Path) -> Optional[Path]:
     """Extract an OCI tarball to an OCI layout directory (idempotent)."""
     layout_dir = oci_tar.parent / "oci-layout"
     if (layout_dir / "index.json").exists():
