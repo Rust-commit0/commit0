@@ -5,7 +5,6 @@ while reusing all language-agnostic infrastructure (progress tracking, git ops,
 trajectory capture, output formatting).
 """
 
-import bz2
 import copy
 import json
 import logging
@@ -24,6 +23,7 @@ from agent.agent_utils import create_branch, get_lint_cmd, load_agent_config
 from agent.agent_utils_rust import (
     extract_rust_function_stubs,
     get_target_edit_files_rust,
+    get_rust_test_ids,
 )
 from agent.agents_rust import RustAiderAgents
 from agent.class_types import AgentConfig
@@ -31,7 +31,7 @@ from agent.run_agent import DirContext, run_eval_after_each_commit
 from agent.thinking_capture import ThinkingCapture, SummarizerCost
 from commit0.cli import read_commit0_config_file
 from commit0.harness.constants import RUN_AGENT_LOG_DIR, RepoInstance
-from commit0.harness.constants_rust import RUST_SPLIT, RUST_TEST_IDS_DIR
+from commit0.harness.constants_rust import RUST_SPLIT
 from commit0.harness.utils import load_dataset_from_config
 
 logger = logging.getLogger(__name__)
@@ -42,26 +42,6 @@ _RUST_PROMPT_PATH = Path(__file__).parent / "prompts" / "rust_system_prompt.md"
 # ---------------------------------------------------------------------------
 # Utility functions
 # ---------------------------------------------------------------------------
-
-
-def get_rust_test_ids(repo_name: str) -> list[str]:
-    """Read Rust test IDs from the bz2 file for *repo_name*.
-
-    Mirrors ``get_pytest_ids.main()`` but points at ``commit0/data/rust_test_ids/``.
-    Returns a flat list of test ID strings (one per line in the bz2 file).
-    """
-    name = repo_name.lower().replace(".", "-")
-    bz2_path = RUST_TEST_IDS_DIR / f"{name}.bz2"
-    if not bz2_path.exists():
-        logger.warning("No Rust test IDs file found at %s", bz2_path)
-        return []
-    try:
-        with bz2.open(bz2_path, "rt") as fh:
-            content = fh.read()
-    except (OSError, EOFError) as exc:
-        logger.error("Failed to read Rust test IDs from %s: %s", bz2_path, exc)
-        return []
-    return [line for line in content.split("\n") if line.strip()]
 
 
 def get_rust_message(
@@ -202,7 +182,7 @@ def run_rust_agent_for_repo(
     target_edit_files = get_target_edit_files_rust(repo_path)
     import_dependencies: dict = {}
 
-    test_ids = get_rust_test_ids(repo_name)
+    test_ids = get_rust_test_ids(repo_path)
 
     experiment_log_dir = _get_stable_log_dir(log_dir, repo_name, branch)
     eval_results = {}

@@ -50,6 +50,7 @@ MAX_WALL_TIME=86400
 SKIP_TO_STAGE=""
 NUM_SAMPLES=1
 MAX_TEST_OUTPUT_LENGTH=15000
+LANGUAGE="python"
 
 print_usage() {
     cat <<'USAGE'
@@ -84,6 +85,7 @@ Options:
   --no-spec-info             Disable spec doc provisioning and agent spec context
   --num-samples    <n>       Number of independent samples to run, pass@k (default: 1)
   --skip-to-stage  <1|2|3>   Skip to stage N (reuse prior stages from existing branch)
+  --language       <lang>    Language: python or rust (default: python)
   -h, --help                 Show this help
 USAGE
     exit 1
@@ -106,6 +108,7 @@ while [[ $# -gt 0 ]]; do
         --num-samples) [[ $# -lt 2 ]] && { echo "Error: --num-samples requires a value"; exit 1; }; NUM_SAMPLES="$2"; shift 2 ;;
         --skip-to-stage) [[ $# -lt 2 ]] && { echo "Error: --skip-to-stage requires a value"; exit 1; }; SKIP_TO_STAGE="$2"; shift 2 ;;
         --max-test-output-length) [[ $# -lt 2 ]] && { echo "Error: --max-test-output-length requires a value"; exit 1; }; MAX_TEST_OUTPUT_LENGTH="$2"; shift 2 ;;
+        --language) [[ $# -lt 2 ]] && { echo "Error: --language requires a value"; exit 1; }; LANGUAGE="$2"; shift 2 ;;
         -h|--help)     print_usage ;;
         *)
             echo "Error: Unknown argument '$1'"
@@ -140,6 +143,16 @@ if [[ "$NUM_SAMPLES" -gt 1 ]] && [[ -n "$SKIP_TO_STAGE" ]]; then
     exit 1
 fi
 
+if [[ "$LANGUAGE" != "python" && "$LANGUAGE" != "rust" ]]; then
+    echo "Error: --language must be 'python' or 'rust' (got: $LANGUAGE)"
+    exit 1
+fi
+
+# Rust repos don't have spec PDFs — force spec info off
+if [[ "$LANGUAGE" == "rust" ]]; then
+    USE_SPEC_INFO="false"
+fi
+
 # ============================================================
 # Resolve Model
 # ============================================================
@@ -157,8 +170,12 @@ resolve_model() {
             MODEL_SHORT="kimi-k2.5"
             CACHE_PROMPTS="false"
             ;;
-        glm5)
-            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/8lzlkxguk85a"
+        glm5|glm-5)
+            if [[ -n "${HELICONE_API_KEY:-}" && -n "${HELICONE_API_BASE:-}" ]]; then
+                MODEL_NAME="bedrock/zai.glm-5"
+            else
+                MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/8lzlkxguk85a"
+            fi
             MODEL_SHORT="glm-5"
             CACHE_PROMPTS="false"
             ;;
@@ -172,24 +189,18 @@ resolve_model() {
             MODEL_SHORT="nova-premier"
             CACHE_PROMPTS="false"
             ;;
-        nova-lite)
-            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/cddwmu6axlfp"
+        nova-lite|nova-2-lite)
+            if [[ -n "${HELICONE_API_KEY:-}" && -n "${HELICONE_API_BASE:-}" ]]; then
+                MODEL_NAME="bedrock/amazon.nova-2-lite-v1:0"
+            else
+                MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/cddwmu6axlfp"
+            fi
             MODEL_SHORT="nova-2-lite"
             CACHE_PROMPTS="false"
             ;;
         gpt54)
             MODEL_NAME="openai/gpt-5.4"
             MODEL_SHORT="gpt-5.4"
-            CACHE_PROMPTS="false"
-            ;;
-        nova-lite)
-            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/cddwmu6axlfp"
-            MODEL_SHORT="nova-2-lite"
-            CACHE_PROMPTS="false"
-            ;;
-        nova-premier)
-            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/td6kwwwp7q0e"
-            MODEL_SHORT="nova-premier"
             CACHE_PROMPTS="false"
             ;;
         *)
@@ -446,6 +457,22 @@ litellm.drop_params = True
 from aider.models import Model
 from aider.llm import litellm as aider_litellm
 
+_hk = os.environ.get("HELICONE_API_KEY", "")
+_hb = os.environ.get("HELICONE_API_BASE", "")
+
+if _hk and _hb and "bedrock" in model_name:
+    _HELICONE_MODEL_MAP = {
+        "8lzlkxguk85a": "bedrock/zai.glm-5",
+        "cddwmu6axlfp": "bedrock/amazon.nova-2-lite-v1:0",
+    }
+    for _arn_suffix, _short in _HELICONE_MODEL_MAP.items():
+        if _arn_suffix in model_name:
+            model_name = _short
+            break
+    os.environ.pop("AWS_BEARER_TOKEN_BEDROCK", None)
+    os.environ.pop("AWS_ACCESS_KEY_ID", None)
+    os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
+
 try:
     m = Model(model_name)
 except Exception as e:
@@ -454,13 +481,19 @@ except Exception as e:
 
 messages = [{"role": "user", "content": "Reply with exactly: OK"}]
 
+_probe_kwargs = dict(
+    model=m.name,
+    messages=messages,
+    max_tokens=8,
+    timeout=60,
+)
+if _hk and _hb and "bedrock" in model_name:
+    _probe_kwargs["api_base"] = _hb
+    _probe_kwargs["api_key"] = _hk
+    _probe_kwargs["aws_region_name"] = "ap-south-1"
+
 try:
-    resp = aider_litellm.completion(
-        model=m.name,
-        messages=messages,
-        max_tokens=8,
-        timeout=60,
-    )
+    resp = aider_litellm.completion(**_probe_kwargs)
     content = resp.choices[0].message.content.strip()
     print(f"PROBE_OK: model responded: {content!r}")
 except Exception as e:
@@ -664,6 +697,7 @@ base_dir: ${REPO_BASE}
 dataset_name: ${ds_value}
 dataset_split: ${DATASET_SPLIT}
 repo_split: ${REPO_SPLIT}
+language: ${LANGUAGE}
 EOF
     log "  Wrote commit0 config: ${COMMIT0_CONFIG}"
 }
@@ -682,14 +716,25 @@ write_agent_config() {
     local add_import_module_to_context="$5"
     local use_spec_info="${6:-false}"
 
-    cat > "$AGENT_CONFIG" <<'YAMLEOF'
-agent_name: aider
-YAMLEOF
-    cat >> "$AGENT_CONFIG" <<EOF
-model_name: $(yaml_escape "${MODEL_NAME}")
-model_short: $(yaml_escape "${MODEL_SHORT}")
-use_user_prompt: false
-user_prompt: 'Here is your task:
+    local user_prompt
+    if [[ "$LANGUAGE" == "rust" ]]; then
+        user_prompt='Here is your task:
+
+  You need to complete the implementations for all functions (i.e., those with
+  panic!("STUB: not implemented") markers) and pass the unit tests.
+
+  Do not change function signatures, struct definitions, or trait implementations,
+  as they may be referenced from other code like unit tests.
+
+  Do not modify Cargo.toml or any test files. Do not use unsafe blocks unless
+  the existing code already uses them.
+
+  When you generate code, you must maintain the original formatting of the function
+  stubs (such as whitespaces), otherwise we will not be able to search/replace blocks
+  for code modifications, and therefore you will receive a score of 0 for your generated
+  code.'
+    else
+        user_prompt='Here is your task:
 
   You need to complete the implementations for all functions (i.e., those with pass
   statements) and pass the unit tests.
@@ -701,6 +746,16 @@ user_prompt: 'Here is your task:
   stubs (such as whitespaces), otherwise we will not able to search/replace blocks
   for code modifications, and therefore you will receive a score of 0 for your generated
   code.'
+    fi
+
+    cat > "$AGENT_CONFIG" <<'YAMLEOF'
+agent_name: aider
+YAMLEOF
+    cat >> "$AGENT_CONFIG" <<EOF
+model_name: $(yaml_escape "${MODEL_NAME}")
+model_short: $(yaml_escape "${MODEL_SHORT}")
+use_user_prompt: false
+user_prompt: '${user_prompt}'
 use_topo_sort_dependencies: true
 add_import_module_to_context: ${add_import_module_to_context}
 use_repo_info: false
@@ -722,6 +777,7 @@ max_test_output_length: ${MAX_TEST_OUTPUT_LENGTH}
 capture_thinking: true
 trajectory_md: true
 output_jsonl: true
+language: ${LANGUAGE}
 EOF
     log "  Wrote agent config: ${AGENT_CONFIG}"
 }
@@ -1455,6 +1511,7 @@ run_single_sample() {
     log "Commit0 SDE-I 3-Stage Pipeline"
     log "Model:        ${MODEL_NAME} (${MODEL_SHORT})"
     log "Dataset:      ${DATASET_FILE} (${DATASET_SHORT})"
+    log "Language:     ${LANGUAGE}"
     log "Repo Split:   ${REPO_SPLIT}"
     log "Branch:       ${BRANCH_NAME}"
     log "Backend:      ${BACKEND}"
@@ -1484,7 +1541,7 @@ run_single_sample() {
 
     write_commit0_config
 
-    if [[ "$sample_idx" -eq 1 ]]; then
+    if [[ "$sample_idx" -eq 1 && "$LANGUAGE" != "rust" ]]; then
         ensure_spec_docs
         if ! verify_spec_docs; then
             return 1

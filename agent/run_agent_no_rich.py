@@ -13,6 +13,7 @@ from agent.agent_utils import (
     update_message_with_dependencies,
     get_lint_cmd,
     load_agent_config,
+    module_name_from_file,
 )
 import subprocess
 import sys
@@ -136,7 +137,8 @@ def run_agent_for_repo(
     lint_files = get_changed_files_from_commits(
         local_repo, "HEAD", example["base_commit"]
     )
-    # Call the commit0 get-tests command to retrieve test files
+
+    # Call the commit0 get-tests command to retrieve test files (Python)
     test_files_str = [xx for x in get_tests(repo_name, verbose=0) for xx in x]
     test_files_raw = sorted(
         list(set([i.split(":")[0] for i in test_files_str if i.strip()]))
@@ -198,7 +200,7 @@ def run_agent_for_repo(
 
         if agent_config.run_tests:
             for test_file in test_files:
-                test_file_name = test_file.replace(".py", "").replace("/", "__")
+                test_file_name = module_name_from_file(test_file)
                 test_log_dir = experiment_log_dir / test_file_name
 
                 if _is_module_done(test_log_dir):
@@ -209,7 +211,9 @@ def run_agent_for_repo(
 
                 test_cmd = f"{sys.executable} -m commit0 test {repo_path} {test_file} --branch {branch} --backend {backend} --commit0-config-file {commit0_config_file} --timeout 100"
                 lint_cmd = get_lint_cmd(
-                    repo_name, agent_config.use_lint_info, commit0_config_file
+                    repo_name,
+                    agent_config.use_lint_info,
+                    commit0_config_file,
                 )
                 message, spec_costs = get_message(
                     agent_config, repo_path, test_files=[test_file]
@@ -273,7 +277,7 @@ def run_agent_for_repo(
                 for c in spec_costs:
                     thinking_capture.summarizer_costs.add(c)
             for lint_file in lint_files:
-                lint_file_name = lint_file.replace(".py", "").replace("/", "__")
+                lint_file_name = module_name_from_file(lint_file)
                 lint_log_dir = experiment_log_dir / lint_file_name
 
                 if _is_module_done(lint_log_dir):
@@ -281,7 +285,9 @@ def run_agent_for_repo(
                     continue
 
                 lint_cmd = get_lint_cmd(
-                    repo_name, agent_config.use_lint_info, commit0_config_file
+                    repo_name,
+                    agent_config.use_lint_info,
+                    commit0_config_file,
                 )
 
                 pre_sha = local_repo.head.commit.hexsha
@@ -338,7 +344,7 @@ def run_agent_for_repo(
                     thinking_capture.summarizer_costs.add(c)
 
             for f in target_edit_files:
-                file_name = f.replace(".py", "").replace("/", "__")
+                file_name = module_name_from_file(f)
                 file_log_dir = experiment_log_dir / file_name
 
                 if _is_module_done(file_log_dir):
@@ -354,7 +360,9 @@ def run_agent_for_repo(
                     iter_message = message
 
                 lint_cmd = get_lint_cmd(
-                    repo_name, agent_config.use_lint_info, commit0_config_file
+                    repo_name,
+                    agent_config.use_lint_info,
+                    commit0_config_file,
                 )
                 pre_sha = local_repo.head.commit.hexsha
                 module_start = time.time()

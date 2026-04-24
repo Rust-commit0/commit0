@@ -9,8 +9,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from typing import Iterator, Union
 
-from commit0.harness.run_pytest_ids import main as run_tests
-from commit0.harness.get_pytest_ids import main as get_tests
+from commit0.harness.run_pytest_ids import main as run_python_tests
+from commit0.harness.get_pytest_ids import main as get_python_tests
 from commit0.harness.constants import RepoInstance, SPLIT, RUN_PYTEST_LOG_DIR
 from commit0.harness.spec import get_specs_from_dataset
 from commit0.harness.utils import (
@@ -23,6 +23,77 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def _aggregate_python_results(log_dir: str, name: str, out: list) -> None:
+    report_file = os.path.join(log_dir, "report.json")
+    test_ids = get_python_tests(name, verbose=0)
+    test_ids = [xx for x in test_ids for xx in x if xx]
+    if not os.path.exists(report_file):
+        log_parent = os.path.dirname(report_file)
+        test_output_file = os.path.join(log_parent, "test_output.txt")
+        if os.path.exists(test_output_file):
+            reason = "pytest_crash_or_collection_error"
+        else:
+            reason = "container_or_infra_failure"
+        logger.warning(f"{name}: missing report.json ({reason}) — check {log_parent}")
+        out.append(
+            {
+                "name": name,
+                "sum": 0,
+                "passed": 0,
+                "num_passed": 0,
+                "num_tests": len(test_ids),
+            }
+        )
+        return
+    with open(report_file, "r") as file:
+        report = json.load(file)
+    # new version of pytest json
+    if "created" in report:
+        logger.debug("Using new pytest report format for %s", name)
+        tests = {x["nodeid"]: x["call"] for x in report["tests"] if "call" in x}
+    # old version of pytest json
+    else:
+        logger.debug("Using old pytest report format for %s", name)
+        tests = {
+            x["nodeid"]: {"outcome": x["outcome"], "duration": x["duration"]}
+            for x in report
+            if x["when"] == "call"
+        }
+    status = []
+    runtimes = []
+    no_runs = 0
+    for test_id in test_ids:
+        if test_id in tests and tests[test_id] is not None:
+            status.append(tests[test_id]["outcome"])
+            runtimes.append(tests[test_id]["duration"])
+            no_runs += 1
+        else:
+            status.append("failed")
+            runtimes.append(0)
+    status_counter = Counter(status)
+    if no_runs == 0:
+        total = 0
+    else:
+        total = sum(runtimes)
+    if "xfail" not in status_counter:
+        status_counter["xfail"] = 0
+    passed = (
+        (status_counter["passed"] + status_counter["xfail"])
+        / sum(status_counter.values())
+        if sum(status_counter.values()) > 0
+        else 0.0
+    )
+    out.append(
+        {
+            "name": name,
+            "sum": total,
+            "passed": passed,
+            "num_passed": status_counter["passed"] + status_counter["xfail"],
+            "num_tests": len(test_ids),
+        }
+    )
 
 
 def _preflight_check_images(
@@ -79,6 +150,9 @@ def main(
     num_workers: int,
     rebuild_image: bool,
 ) -> None:
+    split_dict = SPLIT
+    log_base_dir = RUN_PYTEST_LOG_DIR
+
     dataset: Iterator[RepoInstance] = load_dataset_from_config(
         dataset_name, split=dataset_split
     )  # type: ignore
@@ -98,8 +172,8 @@ def main(
             repos = [iid for iid in all_instance_ids if repo_split in iid]
     else:
         repos = (
-            SPLIT[repo_split]
-            if repo_split in SPLIT
+            split_dict[repo_split]
+            if repo_split in split_dict
             else [ex["repo"].split("/")[-1] for ex in dataset_list]
         )
     triples = []
@@ -111,8 +185,8 @@ def main(
                 continue
         else:
             if repo_split != "all":
-                if repo_split in SPLIT:
-                    if repo_name not in SPLIT[repo_split]:
+                if repo_split in split_dict:
+                    if repo_name not in split_dict[repo_split]:
                         continue
                 else:
                     # Normalize: hyphens/underscores are interchangeable
@@ -128,7 +202,7 @@ def main(
                 "Branch not specified for %s, resolved to: %s", repo_name, repo_branch
             )
         log_dir = (
-            RUN_PYTEST_LOG_DIR
+            log_base_dir
             / example["instance_id"].split("/")[-1]
             / repo_branch
             / hashed_test_ids
@@ -168,9 +242,10 @@ def main(
     with tqdm(total=len(triples), smoothing=0, desc="Evaluating repos") as pbar:
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             # Create a future for running each instance
-            futures = {
-                executor.submit(
-                    run_tests,
+            futures = {}
+            for repo, test_dir, branch in triples:
+                future = executor.submit(
+                    run_python_tests,
                     dataset_name,
                     dataset_split,
                     base_dir,
@@ -183,9 +258,8 @@ def main(
                     num_cpus,
                     rebuild_image=rebuild_image,
                     verbose=0,
-                ): repo
-                for repo, test_dir, branch in triples
-            }
+                )
+                futures[future] = repo
             # Wait for each future to complete
             for future in as_completed(futures):
                 pbar.update(1)
@@ -209,76 +283,8 @@ def main(
     # get numbers
     out = []
     for name in tqdm(log_dirs):
-        report_file = os.path.join(name, "report.json")
-        name = name.split("/")[2]
-        test_ids = get_tests(name, verbose=0)
-        test_ids = [xx for x in test_ids for xx in x if xx]
-        if not os.path.exists(report_file):
-            log_parent = os.path.dirname(report_file)
-            test_output_file = os.path.join(log_parent, "test_output.txt")
-            if os.path.exists(test_output_file):
-                reason = "pytest_crash_or_collection_error"
-            else:
-                reason = "container_or_infra_failure"
-            logger.warning(
-                f"{name}: missing report.json ({reason}) — check {log_parent}"
-            )
-            out.append(
-                {
-                    "name": name,
-                    "sum": 0,
-                    "passed": 0,
-                    "num_passed": 0,
-                    "num_tests": len(test_ids),
-                }
-            )
-            continue
-        with open(report_file, "r") as file:
-            report = json.load(file)
-        # new version of pytest json
-        if "created" in report:
-            logger.debug("Using new pytest report format for %s", name)
-            tests = {x["nodeid"]: x["call"] for x in report["tests"] if "call" in x}
-        # old version of pytest json
-        else:
-            logger.debug("Using old pytest report format for %s", name)
-            tests = {
-                x["nodeid"]: {"outcome": x["outcome"], "duration": x["duration"]}
-                for x in report
-                if x["when"] == "call"
-            }
-        status = []
-        runtimes = []
-        no_runs = 0
-        for test_id in test_ids:
-            if test_id in tests and tests[test_id] is not None:
-                status.append(tests[test_id]["outcome"])
-                runtimes.append(tests[test_id]["duration"])
-                no_runs += 1
-            else:
-                status.append("failed")
-                runtimes.append(0)
-        status = Counter(status)
-        if no_runs == 0:
-            total = 0
-        else:
-            total = sum(runtimes)
-        if "xfail" not in status:
-            status["xfail"] = 0
-        passed = (
-            (status["passed"] + status["xfail"]) / sum(status.values())
-            if sum(status.values()) > 0
-            else 0.0
-        )
-        out.append(
-            {
-                "name": name,
-                "sum": total,
-                "passed": passed,
-                "num_passed": status["passed"] + status["xfail"],
-                "num_tests": len(test_ids),
-            }
-        )
+        log_name = name.split("/")[2]
+        _aggregate_python_results(name, log_name, out)
     print("repo,runtime,num_passed/num_tests")
     out = sorted(out, key=lambda x: x["sum"], reverse=True)
     for x in out:

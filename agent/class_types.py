@@ -29,6 +29,9 @@ class AgentConfig:
     max_test_output_length: int = 15000
     model_short: str = ""  # Client-safe short model name (e.g. "opus4.6")
 
+    # --- Language field ---
+    language: str = "python"  # "python" or "rust"
+
     # --- Thinking capture fields ---
     capture_thinking: bool = False  # Whether to capture reasoning tokens
     trajectory_md: bool = True  # Whether to write trajectory.md
@@ -46,6 +49,10 @@ class AgentConfig:
         if not isinstance(self.max_iteration, int) or self.max_iteration < 1:
             raise ValueError(
                 f"max_iteration must be a positive integer, got: {self.max_iteration!r}"
+            )
+        if self.language not in ("python", "rust"):
+            raise ValueError(
+                f"language must be 'python' or 'rust', got: {self.language!r}"
             )
         for field_name in (
             "max_repo_info_length",

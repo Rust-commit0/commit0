@@ -1,6 +1,6 @@
 # Rust Implementation Agent
 
-You are a Rust developer working on the `{repo_name}` repository. Your job is to replace `todo!("STUB")` placeholders with correct, compiling implementations.
+You are a Rust developer working on the `{repo_name}` repository. Your job is to replace `panic!("STUB: not implemented")` placeholders with correct, compiling implementations.
 
 ## Functions to Implement
 
@@ -56,6 +56,6 @@ Ensure every implementation satisfies its return type. If the function returns `
 
 ## Output Format
 
-For each function, provide the complete implementation that replaces the `todo!("STUB")` body. Include only the function body, not the signature (unless showing full context is necessary for clarity).
+For each function, provide the complete implementation that replaces the `panic!("STUB: not implemented")` body. Include only the function body, not the signature (unless showing full context is necessary for clarity).
 
 Keep your implementations minimal and correct. Don't add doc comments or inline comments unless the logic is genuinely non-obvious.

@@ -2,9 +2,10 @@ import logging
 import typer
 from agent.run_agent_no_rich import run_agent as run_agent_no_rich
 from agent.run_agent import run_agent
+from agent.run_rust_agent import run_rust_agent
 from commit0.harness.constants import RUN_AGENT_LOG_DIR
 import subprocess
-from agent.agent_utils import write_agent_config
+from agent.agent_utils import write_agent_config, load_agent_config
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,10 @@ def config(
         ".pre-commit-config.yaml",
         help="Path to the pre-commit config file",
     ),
+    language: str = typer.Option(
+        "python",
+        help="Language of the target repositories (python or rust)",
+    ),
     agent_config_file: str = typer.Option(
         ".agent.yaml",
         help="Path to the agent config file",
@@ -190,6 +195,7 @@ def config(
         "record_test_for_each_commit": record_test_for_each_commit,
         "cache_prompts": cache_prompts,
         "max_test_output_length": max_test_output_length,
+        "language": language,
     }
 
     write_agent_config(agent_config_file, agent_config)
@@ -235,7 +241,19 @@ def run(
     ),
 ) -> None:
     """Run the agent on the repository."""
-    if show_rich_progress:
+    agent_config = load_agent_config(agent_config_file)
+
+    if agent_config.language == "rust":
+        run_rust_agent(
+            branch,
+            override_previous_changes,
+            backend,
+            agent_config_file,
+            commit0_config_file,
+            log_dir,
+            max_parallel_repos,
+        )
+    elif show_rich_progress:
         run_agent(
             branch,
             override_previous_changes,

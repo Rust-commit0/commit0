@@ -328,7 +328,7 @@ def get_target_edit_files(
     for file_path in files:
         with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as file:
             content = file.read()
-            # Don't undo this or reintroduce this will cause massive failure in trajectories as it skip the fill with more than 1500 lines 
+            # Don't undo this or reintroduce this will cause massive failure in trajectories as it skip the fill with more than 1500 lines
             # if len(content.splitlines()) > 1500: "Deleting "
             #     logger.debug("Skipping %s: exceeds 1500 line limit", file_path)
             #     continue
@@ -597,7 +597,7 @@ def _chunk_text(text: str, chunk_size: int) -> list[str]:
 
 _SUMMARIZER_SYSTEM_PROMPT = (
     "You are a technical documentation summarizer for an AI coding "
-    "agent that must implement a Python library from its specification. "
+    "agent that must implement a library from its specification. "
     "Your summary will be the ONLY reference the agent receives.\n\n"
     "PRESERVE (mandatory, never drop):\n"
     "- Every public API signature: function/class/method names, "
@@ -630,7 +630,7 @@ _SUMMARIZER_SYSTEM_PROMPT = (
 
 
 _CONSOLIDATION_SYSTEM_PROMPT = (
-    "You are combining multiple section summaries of a Python library "
+    "You are combining multiple section summaries of a rust library "
     "specification into one cohesive summary. The sections may overlap.\n\n"
     "Rules:\n"
     "- Remove duplicate API signatures, keeping the most complete version.\n"
@@ -1107,7 +1107,10 @@ def create_branch(repo: git.Repo, branch: str, from_commit: str) -> None:
 def get_changed_files_from_commits(
     repo: git.Repo, commit1: str, commit2: str
 ) -> list[str]:
-    """Get the changed files from two commits."""
+    """Get the changed files from two commits.
+
+    Filters to Python source files (``.py``).
+    """
     try:
         # Get the commit objects
         commit1_obj = repo.commit(commit1)
@@ -1119,11 +1122,8 @@ def get_changed_files_from_commits(
         # Extract the changed file paths
         changed_files = [item.a_path for item in diff]
 
-        # Check if each changed file is a Python file
-        python_files = [file for file in changed_files if file.endswith(".py")]
-
-        # Update the changed_files list to only include Python files
-        changed_files = python_files
+        # Filter to Python source files
+        changed_files = [f for f in changed_files if f.endswith(".py")]
 
         return changed_files
     except Exception as e:
@@ -1185,7 +1185,11 @@ def get_changed_files(repo: git.Repo) -> list[str]:
     return files_changed
 
 
-def get_lint_cmd(repo_name: str, use_lint_info: bool, commit0_config_file: str) -> str:
+def get_lint_cmd(
+    repo_name: str,
+    use_lint_info: bool,
+    commit0_config_file: str,
+) -> str:
     """Generate a linting command based on whether to include files.
 
     Args:
@@ -1200,13 +1204,14 @@ def get_lint_cmd(repo_name: str, use_lint_info: bool, commit0_config_file: str) 
              the list of changed files. If False, returns an empty string.
 
     """
+    if not use_lint_info:
+        return ""
+
     lint_cmd = f"{sys.executable} -m commit0 lint "
-    if use_lint_info:
-        lint_cmd += (
-            repo_name + " --commit0-config-file " + commit0_config_file + " --files "
-        )
-    else:
-        lint_cmd = ""
+
+    lint_cmd += (
+        repo_name + " --commit0-config-file " + commit0_config_file + " --files "
+    )
     return lint_cmd
 
 
@@ -1254,3 +1259,12 @@ def load_agent_config(config_file: str) -> "AgentConfig":
             f"Failed to create AgentConfig from '{config_file}': {e}. "
             f"Required fields: {sorted(f.name for f in dataclasses.fields(AgentConfig) if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING)}"
         ) from e
+
+
+def module_name_from_file(file_path: str) -> str:
+    """Derive a module identifier from a file path for trajectory tagging.
+
+    ``src/foo/bar.py`` → ``src__foo__bar``
+    """
+    name = file_path.replace(".py", "")
+    return name.replace("/", "__").replace("\\", "__")

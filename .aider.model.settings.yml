@@ -29,3 +29,20 @@
   use_temperature: false
   extra_params:
     max_tokens: 25000
+
+# Helicone proxy short names
+- name: bedrock/zai.glm-5
+  edit_format: diff
+  use_repo_map: true
+  examples_as_sys_msg: false
+  use_temperature: false
+  extra_params:
+    max_tokens: 128000
+
+- name: bedrock/amazon.nova-2-lite-v1:0
+  edit_format: diff
+  use_repo_map: true
+  examples_as_sys_msg: false
+  use_temperature: false
+  extra_params:
+    max_tokens: 64000

@@ -10,6 +10,7 @@ import commit0.harness.build
 import commit0.harness.build_rust
 import commit0.harness.setup
 import commit0.harness.evaluate
+import commit0.harness.evaluate_rust
 import commit0.harness.lint
 import commit0.harness.lint_rust
 import commit0.harness.save
@@ -437,20 +438,33 @@ def evaluate(
     typer.echo(f"Evaluating repository split: {commit0_config['repo_split']}")
     typer.echo(f"Branch: {branch}")
 
-    commit0.harness.evaluate.main(
-        commit0_config["dataset_name"],
-        commit0_config["dataset_split"],
-        commit0_config["repo_split"],
-        commit0_config["base_dir"],
-        branch,
-        coverage,
-        backend,
-        timeout,
-        num_cpus,
-        num_workers,
-        rebuild,
-        language=config_language,
-    )
+    if config_language == "rust":
+        commit0.harness.evaluate_rust.main(
+            commit0_config["dataset_name"],
+            commit0_config["dataset_split"],
+            commit0_config["repo_split"],
+            commit0_config["base_dir"],
+            branch,
+            backend,
+            timeout,
+            num_cpus,
+            num_workers,
+            rebuild,
+        )
+    else:
+        commit0.harness.evaluate.main(
+            commit0_config["dataset_name"],
+            commit0_config["dataset_split"],
+            commit0_config["repo_split"],
+            commit0_config["base_dir"],
+            branch,
+            coverage,
+            backend,
+            timeout,
+            num_cpus,
+            num_workers,
+            rebuild,
+        )
 
 
 @commit0_app.command()

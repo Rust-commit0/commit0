@@ -68,7 +68,7 @@ class RustSpec(Spec):
             f"git reset --hard {self.instance['base_commit']}",
             f"git apply --allow-empty -v {diff_path}",
             "git status",
-            f"{test_cmd} > test_output.txt 2>&1",
+            f"{test_cmd} {{test_ids}} > test_output.txt 2>&1",
             "echo $? > test_exit_code.txt",
         ]
 

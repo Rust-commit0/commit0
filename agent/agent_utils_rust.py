@@ -53,7 +53,7 @@ def get_target_edit_files_rust(src_dir: str) -> list[str]:
     """Return the subset of ``.rs`` files that contain the stub marker.
 
     The stub marker is :data:`commit0.harness.constants_rust.RUST_STUB_MARKER`
-    (``todo!("STUB")``).
+    (``panic!("STUB: not implemented")``).
     """
     all_files = find_rust_files_to_edit(src_dir)
     target_files: list[str] = []

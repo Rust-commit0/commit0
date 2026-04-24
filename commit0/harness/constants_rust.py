@@ -14,6 +14,8 @@ __all__ = [
     "RUST_VERSION",
     "RUST_STUB_MARKER",
     "RUST_SPLIT",
+    "RUST_BASE_BRANCH",
+    "RUST_GITIGNORE_ENTRIES",
     "CARGO_NEXTEST_VERSION",
     "RUN_RUST_TESTS_LOG_DIR",
     "RUST_TEST_IDS_DIR",
@@ -26,7 +28,13 @@ __all__ = [
 RUST_VERSION = "stable"
 
 # Marker used to identify stub functions in Rust source
-RUST_STUB_MARKER = 'todo!("STUB")'
+RUST_STUB_MARKER = 'panic!("STUB: not implemented")'
+
+# Base branch name for Rust repos (mirrors TS_BASE_BRANCH)
+RUST_BASE_BRANCH = "commit0"
+
+# Entries to add to .gitignore for Rust repos
+RUST_GITIGNORE_ENTRIES = ["target/", ".aider*", "logs/"]
 
 # Repo split mapping for Rust repos
 RUST_SPLIT: Dict[str, list[str]] = {
