@@ -107,22 +107,34 @@ class Docker(ExecutionContext):
 
         logger.debug("Connecting to Docker daemon")
         self.client = docker.from_env()
+        self.container = None
         proxy_env = get_proxy_env() or None
-        self.container = create_container(
-            client=self.client,
-            image_name=spec.repo_image_key,
-            container_name=spec.get_container_name(run_id=uuid.uuid4().hex[:8]),
-            nano_cpus=num_cpus,
-            logger=logger,
-            environment=proxy_env,
-        )
-        self.container.start()
-        if files_to_copy:
-            for key, f in files_to_copy.items():
-                logger.debug(
-                    "Copying %s to container: %s -> %s", key, f["src"], f["dest"]
-                )
-                copy_to_container(self.container, f["src"], f["dest"])  # type: ignore
+        try:
+            self.container = create_container(
+                client=self.client,
+                image_name=spec.repo_image_key,
+                container_name=spec.get_container_name(run_id=uuid.uuid4().hex[:8]),
+                nano_cpus=num_cpus,
+                logger=logger,
+                environment=proxy_env,
+            )
+            self.container.start()
+            if files_to_copy:
+                for key, f in files_to_copy.items():
+                    logger.debug(
+                        "Copying %s to container: %s -> %s", key, f["src"], f["dest"]
+                    )
+                    copy_to_container(self.container, f["src"], f["dest"])  # type: ignore
+        except Exception:
+            if self.container is not None:
+                try:
+                    cleanup_container(self.client, self.container, logger)
+                except Exception:
+                    logger.error(
+                        "Failed to clean up container after __init__ error",
+                        exc_info=True,
+                    )
+            raise
 
     def exec_run_with_timeout(self, command: str) -> tuple[str, bool, float]:
         """Exec"""
@@ -214,7 +226,9 @@ class Modal(ExecutionContext):
                 app=self.app,
                 volumes={"/vol": vol},
             )
-            self.logger.debug("Waiting for Modal sandbox to complete (timeout=%ds)", self.timeout)
+            self.logger.debug(
+                "Waiting for Modal sandbox to complete (timeout=%ds)", self.timeout
+            )
             self.sandbox.wait()
 
             return_code = self.sandbox.returncode

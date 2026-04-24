@@ -158,12 +158,14 @@ def create_repo_on_github(
             logger.info(f"{organization}/{repo} already exists")
             return
         except HTTP403ForbiddenError:
-            for _ in range(60):
+            for wait_cycle in range(60):
                 rl = api.rate_limit.get()  # type: ignore
+                remaining = rl.resources.core.remaining
                 logger.info(
-                    f"Rate limit exceeded, waiting. Remaining: {rl.resources.core.remaining}"
+                    f"Rate limit exceeded (attempt {attempt + 1}/{max_retries}, "
+                    f"cycle {wait_cycle + 1}/60). Remaining: {remaining}"
                 )
-                if rl.resources.core.remaining > 0:
+                if remaining > 0:
                     break
                 time.sleep(60 * 5)
             else:

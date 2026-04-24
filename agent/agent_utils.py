@@ -266,29 +266,36 @@ def _find_files_to_edit(base_dir: str, src_dir: str, test_dir: str) -> list[str]
         ]
 
     # don't edit __init__ files
-    files = [f for f in files if "__init__" not in f]
+    files = [f for f in files if os.path.basename(f) != "__init__.py"]
     # don't edit __main__ files
-    files = [f for f in files if "__main__" not in f]
+    files = [f for f in files if os.path.basename(f) != "__main__.py"]
     # don't edit conftest.py files
-    files = [f for f in files if "conftest.py" not in f]
+    files = [f for f in files if os.path.basename(f) != "conftest.py"]
     return files
 
 
-def ignore_cycles(graph: dict) -> list[str]:
-    """Ignore the cycles in the graph."""
+def ignore_cycles(graph: dict, _depth: int = 0) -> list[str]:
+    """Ignore the cycles in the graph.
+
+    Recursively removes one node per cycle until topological order succeeds.
+    Depth-limited to prevent stack overflow on pathological graphs.
+    """
+    max_depth = 500
+    if _depth >= max_depth:
+        logger.warning(
+            "ignore_cycles: hit depth limit (%d), returning remaining keys", max_depth
+        )
+        return list(graph.keys())
     graph = copy.deepcopy(graph)
     ts = TopologicalSorter(graph)
     try:
         return list(ts.static_order())
     except CycleError as e:
         logger.debug("Breaking dependency cycle: %s", e.args[1] if e.args else e)
-        # You can either break the cycle by modifying the graph or handle it as needed.
-        # For now, let's just remove the first node in the cycle and try again.
         cycle_nodes = e.args[1]
         node_to_remove = cycle_nodes[0]
-        # print(f"Removing node {node_to_remove} to resolve cycle.")
         graph.pop(node_to_remove, None)
-        return ignore_cycles(graph)
+        return ignore_cycles(graph, _depth=_depth + 1)
 
 
 def topological_sort_based_on_dependencies(
@@ -368,7 +375,16 @@ def get_target_edit_files(
             "all files should be included"
         )
     finally:
-        local_repo.git.checkout(branch)
+        try:
+            local_repo.git.checkout(branch)
+        except Exception:
+            logger.error(
+                "Failed to restore branch %s after checking out %s — "
+                "repo may be on wrong commit",
+                branch,
+                reference_commit,
+                exc_info=True,
+            )
 
     # Remove the base_dir prefix
     topological_sort_files = [
@@ -630,7 +646,7 @@ _SUMMARIZER_SYSTEM_PROMPT = (
 
 
 _CONSOLIDATION_SYSTEM_PROMPT = (
-    "You are combining multiple section summaries of a rust library "
+    "You are combining multiple section summaries of a library "
     "specification into one cohesive summary. The sections may overlap.\n\n"
     "Rules:\n"
     "- Remove duplicate API signatures, keeping the most complete version.\n"
@@ -685,7 +701,7 @@ def _summarize_single(
 
         cost.cost = litellm.completion_cost(completion_response=response)
     except Exception:
-        pass
+        logger.debug("litellm cost calculation failed", exc_info=True)
 
     content = response.choices[0].message.content  # type: ignore[union-attr]
     if content:
@@ -1033,7 +1049,7 @@ def summarize_test_output(
         try:
             cost.cost = litellm.completion_cost(completion_response=response)
         except Exception:
-            pass
+            logger.debug("litellm cost calculation failed", exc_info=True)
         all_costs.append(cost)
 
         content = response.choices[0].message.content  # type: ignore[union-attr]

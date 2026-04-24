@@ -3,6 +3,7 @@ import os
 import yaml
 import multiprocessing
 from git import Repo
+import git
 from agent.agent_utils import (
     create_branch,
     get_message,
@@ -35,6 +36,12 @@ logger = logging.getLogger(__name__)
 
 
 class DirContext:
+    """Temporarily change the working directory.
+
+    WARNING: os.chdir() is process-global. This is safe with
+    multiprocessing.Pool (separate processes) but NOT with threads.
+    """
+
     def __init__(self, d: str):
         self.dir = d
         self.cwd = os.getcwd()
@@ -97,7 +104,7 @@ def run_agent_for_repo(
 
     try:
         local_repo = Repo(repo_path)
-    except Exception:
+    except (git.InvalidGitRepositoryError, git.NoSuchPathError):
         logger.error(
             "Failed to open repo at %s: not a git repo", repo_path, exc_info=True
         )
@@ -116,9 +123,14 @@ def run_agent_for_repo(
             f"{agent_config.agent_name} is not implemented; please add your implementations in baselines/agents.py."
         )
 
-    # Check if there are changes in the current branch
+    # Check if there are changes in the current branch.
+    # WARNING: auto-commits uncommitted work — irreversible data mutation.
     if local_repo.is_dirty():
-        logger.warning("Auto-committing uncommitted changes in %s", repo_path)
+        logger.warning(
+            "Auto-committing uncommitted changes in %s — this is irreversible. "
+            "Commit message: 'left from last change'",
+            repo_path,
+        )
         # Stage all changes
         local_repo.git.add(A=True)
         # Commit changes with the message "left from last change"
@@ -301,9 +313,7 @@ def run_agent_for_repo(
                     agent_config.use_lint_info,
                     commit0_config_file,
                 )
-                agent_return = agent.run(
-                    message, "", lint_cmd, [f], file_log_dir
-                )
+                agent_return = agent.run(message, "", lint_cmd, [f], file_log_dir)
                 if agent_config.record_test_for_each_commit:
                     current_commit = local_repo.head.commit.hexsha
                     eval_results[current_commit] = run_eval_after_each_commit(

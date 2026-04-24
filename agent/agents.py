@@ -463,7 +463,10 @@ class AiderAgents(Agents):
                     self.model = Model(short_name)
                     break
 
-            # Remove AWS SigV4 credentials — Helicone uses plain Bearer auth
+            # SECURITY: Remove AWS SigV4 credentials — Helicone proxy uses Bearer
+            # auth, and aider/litellm would fail if both credential types are present.
+            # This mutates os.environ globally; if parallelism is added later,
+            # credentials must be scoped per-request instead.
             os.environ.pop("AWS_BEARER_TOKEN_BEDROCK", None)
             os.environ.pop("AWS_ACCESS_KEY_ID", None)
             os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
@@ -547,6 +550,9 @@ class AiderAgents(Agents):
             sys.stdout = open(log_file, "a")
             sys.stderr = open(log_file, "a")
         except OSError as e:
+            # Restore stdout if it was already redirected before stderr failed
+            sys.stdout = _saved_stdout
+            sys.stderr = _saved_stderr
             _logger.error("Failed to redirect stdout/stderr to %s: %s", log_file, e)
             raise
 

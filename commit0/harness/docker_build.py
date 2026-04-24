@@ -373,7 +373,9 @@ def build_image(
             str(build_dir),
         ]
         logger.info(f"Building OCI tarball: {' '.join(oci_cmd)}")
-        oci_result = subprocess.run(oci_cmd, capture_output=True, text=True)
+        oci_result = subprocess.run(
+            oci_cmd, capture_output=True, text=True, timeout=3600
+        )
         for line in (oci_result.stderr or "").splitlines():
             logger.info(ansi_escape.sub("", line))
         if oci_result.returncode != 0:
@@ -419,7 +421,9 @@ def build_image(
             str(build_dir),
         ]
         logger.info(f"Loading native image ({native}): {' '.join(load_cmd)}")
-        load_result = subprocess.run(load_cmd, capture_output=True, text=True)
+        load_result = subprocess.run(
+            load_cmd, capture_output=True, text=True, timeout=3600
+        )
         for line in (load_result.stderr or "").splitlines():
             logger.info(ansi_escape.sub("", line))
         if load_result.returncode != 0:

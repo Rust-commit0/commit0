@@ -283,7 +283,7 @@ def main(
     # get numbers
     out = []
     for name in tqdm(log_dirs):
-        log_name = name.split("/")[2]
+        log_name = os.path.basename(name)
         _aggregate_python_results(name, log_name, out)
     print("repo,runtime,num_passed/num_tests")
     out = sorted(out, key=lambda x: x["sum"], reverse=True)

@@ -46,6 +46,8 @@ def main(
                         continue
         local_repo_path = f"{base_dir}/{repo_name}"
         github_repo_url = f"https://github.com/{owner}/{repo_name}.git"
+        # SECURITY: token is embedded in the URL and persists in .git/config.
+        # Consider using a git credential helper to avoid on-disk token storage.
         github_repo_url = github_repo_url.replace(
             "https://", f"https://x-access-token:{github_token}@"
         )
@@ -90,8 +92,7 @@ def main(
             logger.info(f"Pushed to {_safe_url} on branch {branch}")
         except Exception as e:
             logger.error(f"Push {branch} to {owner}/{repo_name} fails.\n{str(e)}")
-            continue
-            # raise Exception(f"Push {branch} to {owner}/{repo_name} fails.\n{str(e)}")
+            raise
 
 
 __all__ = []
