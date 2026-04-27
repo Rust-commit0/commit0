@@ -171,11 +171,7 @@ resolve_model() {
             CACHE_PROMPTS="false"
             ;;
         glm5|glm-5)
-            if [[ -n "${HELICONE_API_KEY:-}" && -n "${HELICONE_API_BASE:-}" ]]; then
-                MODEL_NAME="bedrock/zai.glm-5"
-            else
-                MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/8lzlkxguk85a"
-            fi
+            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/8lzlkxguk85a"
             MODEL_SHORT="glm-5"
             CACHE_PROMPTS="false"
             ;;
@@ -190,11 +186,7 @@ resolve_model() {
             CACHE_PROMPTS="false"
             ;;
         nova-lite|nova-2-lite)
-            if [[ -n "${HELICONE_API_KEY:-}" && -n "${HELICONE_API_BASE:-}" ]]; then
-                MODEL_NAME="bedrock/amazon.nova-2-lite-v1:0"
-            else
-                MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/cddwmu6axlfp"
-            fi
+            MODEL_NAME="bedrock/converse/arn:aws:bedrock:us-east-1:426628337772:application-inference-profile/cddwmu6axlfp"
             MODEL_SHORT="nova-2-lite"
             CACHE_PROMPTS="false"
             ;;
@@ -457,22 +449,6 @@ litellm.drop_params = True
 from aider.models import Model
 from aider.llm import litellm as aider_litellm
 
-_hk = os.environ.get("HELICONE_API_KEY", "")
-_hb = os.environ.get("HELICONE_API_BASE", "")
-
-if _hk and _hb and "bedrock" in model_name:
-    _HELICONE_MODEL_MAP = {
-        "8lzlkxguk85a": "bedrock/zai.glm-5",
-        "cddwmu6axlfp": "bedrock/amazon.nova-2-lite-v1:0",
-    }
-    for _arn_suffix, _short in _HELICONE_MODEL_MAP.items():
-        if _arn_suffix in model_name:
-            model_name = _short
-            break
-    os.environ.pop("AWS_BEARER_TOKEN_BEDROCK", None)
-    os.environ.pop("AWS_ACCESS_KEY_ID", None)
-    os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
-
 try:
     m = Model(model_name)
 except Exception as e:
@@ -487,10 +463,6 @@ _probe_kwargs = dict(
     max_tokens=8,
     timeout=60,
 )
-if _hk and _hb and "bedrock" in model_name:
-    _probe_kwargs["api_base"] = _hb
-    _probe_kwargs["api_key"] = _hk
-    _probe_kwargs["aws_region_name"] = "ap-south-1"
 
 try:
     resp = aider_litellm.completion(**_probe_kwargs)

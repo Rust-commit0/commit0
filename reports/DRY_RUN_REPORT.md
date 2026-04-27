@@ -255,7 +255,7 @@ Repo name is not validated. A repo name containing shell metacharacters could in
 | GitHub token | CLI arg / env | `save.py:49` embeds in git remote URL → persisted in `.git/config` | Token on disk |
 | OpenAI API key | `OPENAI_API_KEY` env | `agents.py:481` → aider → LLM API | Standard |
 | Anthropic key | `ANTHROPIC_API_KEY` env | `agents.py:484` → aider → LLM API | Standard |
-| AWS creds | `AWS_*` env vars | `agents.py:466-469` pops from `os.environ` globally when Helicone active | Global side-effect |
+| AWS creds | `AWS_*` env vars | Direct Bedrock auth (SigV4/Bearer) | Standard |
 | Bearer token | `BEDROCK_BEARER_TOKEN` | `run_pipeline_rust.sh:171-181` → unsets IAM creds irreversibly | Shell session mutation |
 
 #### MEDIUM: Dataset as Trust Boundary
@@ -348,7 +348,7 @@ Dataset JSON
 | State | Scope | Hazard | Severity |
 |---|---|---|---|
 | `sys.stdout` / `sys.stderr` | Process-global | `agents_rust.py:72-76` redirects globally; unsafe if aider spawns threads | CRITICAL |
-| `os.environ` (AWS creds) | Process-global | `agents.py:466-469` pops AWS creds when Helicone active | CRITICAL |
+| `os.environ` (AWS creds) | Process-global | Helicone removed; AWS creds no longer mutated | RESOLVED |
 | `litellm.model_cost` | Module-global | `agents.py:343` mutates global pricing dict | MEDIUM |
 | `os.chdir` via `DirContext` | Process-global | Safe in fork (`multiprocessing`), would break under threads | MEDIUM |
 | Docker daemon | System-global | Multiple threads issue build/exec/kill commands simultaneously | MEDIUM |

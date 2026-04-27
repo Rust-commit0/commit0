@@ -358,7 +358,6 @@ class TestAiderAgentsInit:
             "API_KEY",
             "AWS_ACCESS_KEY_ID",
             "AWS_BEARER_TOKEN_BEDROCK",
-            "HELICONE_API_KEY",
         ]:
             monkeypatch.delenv(key, raising=False)
 
@@ -374,8 +373,6 @@ class TestAiderAgentsInit:
         self, mock_register, mock_load, mock_model, monkeypatch
     ):
         monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA...")
-        monkeypatch.delenv("HELICONE_API_KEY", raising=False)
-        monkeypatch.delenv("HELICONE_API_BASE", raising=False)
 
         from agent.agents import AiderAgents
 
@@ -675,8 +672,6 @@ class TestApplyThinkingCapturePatches:
 class TestAiderAgentsRun:
     def _make_agent(self, monkeypatch, tmp_path):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-        monkeypatch.delenv("HELICONE_API_KEY", raising=False)
-        monkeypatch.delenv("HELICONE_API_BASE", raising=False)
         from agent.agents import AiderAgents
 
         with (
@@ -946,98 +941,6 @@ class TestAiderAgentsRun:
         file_read_turns = [t for t in tc.turns if "[files:read]" in t.content]
         assert len(file_read_turns) == 1
         assert "foo.py" in file_read_turns[0].content
-
-
-class TestHeliconeProxy:
-    @patch(f"{MODULE}.Model")
-    @patch(f"{MODULE}.AiderAgents._load_model_settings")
-    @patch(f"{MODULE}.register_bedrock_arn_pricing")
-    def test_helicone_remaps_model_name(
-        self, mock_register, mock_load, mock_model, monkeypatch
-    ):
-        monkeypatch.setenv("HELICONE_API_KEY", "hlk-test-key")
-        monkeypatch.setenv("HELICONE_API_BASE", "https://helicone.example.com")
-        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA-test")
-        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret-test")
-
-        from agent.agents import AiderAgents
-
-        agent = AiderAgents(
-            max_iteration=3,
-            model_name="bedrock/converse/arn:aws:bedrock:ap-south-1:123:inference-profile/8lzlkxguk85a-test",
-        )
-
-        assert agent.model_name == "bedrock/zai.glm-5"
-
-    @patch(f"{MODULE}.Model")
-    @patch(f"{MODULE}.AiderAgents._load_model_settings")
-    @patch(f"{MODULE}.register_bedrock_arn_pricing")
-    def test_helicone_clears_aws_credentials(
-        self, mock_register, mock_load, mock_model, monkeypatch
-    ):
-        monkeypatch.setenv("HELICONE_API_KEY", "hlk-test-key")
-        monkeypatch.setenv("HELICONE_API_BASE", "https://helicone.example.com")
-        monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "bearer-token")
-        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA-test")
-        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret-test")
-
-        from agent.agents import AiderAgents
-
-        AiderAgents(
-            max_iteration=3,
-            model_name="bedrock/converse/arn:aws:bedrock:ap-south-1:123:inference-profile/8lzlkxguk85a-test",
-        )
-
-        assert os.environ.get("AWS_BEARER_TOKEN_BEDROCK") is None
-        assert os.environ.get("AWS_ACCESS_KEY_ID") is None
-        assert os.environ.get("AWS_SECRET_ACCESS_KEY") is None
-
-    @patch(f"{MODULE}.Model")
-    @patch(f"{MODULE}.AiderAgents._load_model_settings")
-    @patch(f"{MODULE}.register_bedrock_arn_pricing")
-    def test_helicone_sets_api_base_and_key(
-        self, mock_register, mock_load, mock_model, monkeypatch
-    ):
-        monkeypatch.setenv("HELICONE_API_KEY", "hlk-test-key")
-        monkeypatch.setenv("HELICONE_API_BASE", "https://helicone.example.com")
-        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA-test")
-
-        mock_model_instance = MagicMock()
-        mock_model_instance.extra_params = None
-        mock_model.return_value = mock_model_instance
-
-        from agent.agents import AiderAgents
-
-        agent = AiderAgents(
-            max_iteration=3,
-            model_name="bedrock/converse/arn:aws:bedrock:ap-south-1:123:inference-profile/8lzlkxguk85a-test",
-        )
-
-        assert agent.model.extra_params["api_base"] == "https://helicone.example.com"
-        assert agent.model.extra_params["api_key"] == "hlk-test-key"
-        assert agent.model.extra_params["aws_region_name"] == "ap-south-1"
-
-    @patch(f"{MODULE}.Model")
-    @patch(f"{MODULE}.AiderAgents._load_model_settings")
-    @patch(f"{MODULE}.register_bedrock_arn_pricing")
-    def test_no_helicone_without_env_vars(
-        self, mock_register, mock_load, mock_model, monkeypatch
-    ):
-        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA-test")
-        monkeypatch.delenv("HELICONE_API_KEY", raising=False)
-        monkeypatch.delenv("HELICONE_API_BASE", raising=False)
-
-        mock_model_instance = MagicMock()
-        mock_model.return_value = mock_model_instance
-
-        from agent.agents import AiderAgents
-
-        agent = AiderAgents(
-            max_iteration=3,
-            model_name="bedrock/some-model",
-        )
-
-        assert agent.model_name == "bedrock/some-model"
 
 
 class TestLoadModelSettings:

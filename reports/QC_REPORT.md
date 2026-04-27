@@ -54,7 +54,7 @@ LOCATION:  agent/agents.py (733 lines), agent/run_agent.py (503 lines),
 
 | File | Tests | Coverage targets |
 |---|---|---|
-| `test_agents_core.py` | 14 stubs, 5 classes | stdout/stderr redirect+restore, Helicone rewrite, bedrock pricing, monkey-patching, ARN resolution |
+| `test_agents_core.py` | 14 stubs, 5 classes | stdout/stderr redirect+restore, bedrock pricing, monkey-patching, ARN resolution |
 | `test_run_agent_core.py` | 13 stubs, 4 classes | DirContext, branch creation + auto-commit, test file discovery, queue messages |
 | `test_agent_utils_core.py` | 15 stubs, 5 classes | ignore_cycles depth, file exclusion logic, checkout/finally, topo sort, get_message |
 
@@ -107,23 +107,12 @@ except OSError as e:
 ```
 SEVERITY:  HIGH
 CATEGORY:  Security / Architecture
-LOCATION:  agent/agents.py:466-469
+LOCATION:  agent/agents.py:466-469 (REMOVED)
 ```
 
-**FINDING**: When Helicone proxy is active, AWS credentials are deleted from `os.environ` — a process-global mutation that affects every thread and subprocess.
+**FINDING**: ~~When Helicone proxy was active, AWS credentials were deleted from `os.environ` — a process-global mutation that affected every thread and subprocess.~~
 
-**EVIDENCE**:
-```python
-os.environ.pop('AWS_BEARER_TOKEN_BEDROCK', None)   # line 467
-os.environ.pop('AWS_ACCESS_KEY_ID', None)           # line 468
-os.environ.pop('AWS_SECRET_ACCESS_KEY', None)       # line 469
-```
-
-**SCENARIO**: If parallel agent runs are added (or already exist via multiprocessing), one agent's credential pop affects all others. Any code path that later needs AWS credentials (S3 upload, CloudWatch, etc.) silently fails.
-
-**IMPACT**: Credential-dependent operations fail silently; difficult to diagnose because the credentials were present at process start.
-
-**FIX APPLIED**: Added SECURITY comment documenting intent (Helicone Bearer auth requires removal of standard AWS creds) and parallelism risk. No code change — behavior is intentional but fragile. **Recommend**: use subprocess environment isolation instead of mutating `os.environ`.
+**RESOLVED**: The entire Helicone proxy integration has been removed. AWS credentials are no longer mutated. Direct Bedrock auth (SigV4/Bearer) is now the only path.
 
 ---
 
@@ -379,14 +368,9 @@ CATEGORY:  Security / Secrets
 LOCATION:  .env:2
 ```
 
-**FINDING**: Base64-encoded Helicone API key present (commented out). `.gitignore` covers `.env`, but the key exists in the working tree.
+**FINDING**: Base64-encoded Helicone API key was present (commented out). Helicone proxy has been fully removed from the codebase.
 
-**EVIDENCE** (before fix):
-```
-# HELICONE_API_KEY=ABSKQmVkcm9ja0FQSUtleS1icjNl...
-```
-
-**FIX APPLIED**: Removed the line. **Recommend**: rotate the key.
+**FIX APPLIED**: Removed the line and all Helicone integration code. **Recommend**: rotate the key.
 
 ---
 
