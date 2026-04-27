@@ -104,6 +104,7 @@ class RustAiderAgents(AiderAgents):
 
             # RUST CHANGE 2: Append Rust-specific system prompt instead of Python one.
             coder.gpt_prompts.main_system += (
+                "\n\nYou are an expert Rust developer."
                 "\n\nNEVER edit test files or `#[cfg(test)]` modules. Test files are"
                 " read-only reference material. If a test file is provided, use it ONLY"
                 " to understand expected behavior. Only modify implementation/source files"
