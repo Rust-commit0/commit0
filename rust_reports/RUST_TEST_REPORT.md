@@ -2,8 +2,8 @@
 
 **Date**: Apr 27, 2026  
 **Location**: `commit0/harness/tests/` and `agent/tests/`  
-**Total Files**: 23  
-**Total Test Functions**: **1,190**
+**Total Files**: 26  
+**Total Test Functions**: **1,337**
 
 ---
 
@@ -18,23 +18,26 @@
 | 5 | `test_constants_rust.py` | 569 | 91 | `constants_rust` | ✅ Complete |
 | 6 | `test_docker_build_rust.py` | 2,013 | 90 | `docker_build_rust` | ✅ Complete |
 | 7 | `test_spec_rust.py` | 500 | 79 | `spec_rust` | ✅ Complete |
-| 8 | `test_rust_test_parser.py` | 585 | 56 | `rust_test_parser` | ✅ Complete |
-| 9 | `test_patch_utils_rust.py` | 312 | 55 | `patch_utils_rust` | ✅ Complete |
-| 10 | `test_health_check_rust.py` | 300 | 52 | `health_check_rust` | ✅ Complete |
-| 11 | `test_build_rust.py` | 443 | 49 | `build_rust` | ✅ Complete |
-| 12 | `test_lint_filter_rust.py` | 273 | 45 | `lint_filter` (cross-cutting) | ✅ Complete |
-| 13 | `test_setup_rust.py` | 537 | 38 | `setup_rust` | ✅ Complete |
-| 14 | `test_dockerfiles_rust.py` | 227 | 36 | `dockerfiles_rust` | ✅ Complete |
-| 15 | `test_security_rust.py` | 376 | 34 | `save`, `docker_utils`, `cli` (cross-cutting) | ✅ Complete |
-| 16 | `test_rust_modules.py` | 342 | 26 | Multiple (integration) | ✅ Complete |
-| 17 | `test_string_brutality_rust.py` | 184 | 24 | String handling (cross-cutting) | ✅ Complete |
-| 18 | `test_type_coercion_rust.py` | 230 | 20 | YAML/config coercion (cross-cutting) | ✅ Complete |
-| 19 | `test_save_error_recovery_rust.py` | 441 | 19 | `save` (cross-cutting) | ✅ Complete |
-| 20 | `test_integration_smoke_rust.py` | 154 | 16 | CLI/agent flow (cross-cutting) | ✅ Complete |
-| 21 | `test_config_class_rust.py` | 178 | 12 | `Commit0Config` (cross-cutting) | ✅ Complete |
-| 22 | `test_concurrency_rust.py` | 265 | 10 | ThreadPool/multiprocessing (cross-cutting) | ✅ Complete |
-| 23 | `test_error_recovery_rust.py` | 169 | 10 | Error recovery (cross-cutting) | ✅ Complete |
-| | **TOTAL** | **12,628** | **1,190** | | |
+| 8 | `test_agents_rust.py` | 971 | 58 | `agents` (cross-cutting) | ✅ Complete |
+| 9 | `cli_rust.py` | 812 | 58 | `cli` (cross-cutting) | ✅ Complete |
+| 10 | `test_rust_test_parser.py` | 585 | 56 | `rust_test_parser` | ✅ Complete |
+| 11 | `test_patch_utils_rust.py` | 312 | 55 | `patch_utils_rust` | ✅ Complete |
+| 12 | `test_health_check_rust.py` | 300 | 52 | `health_check_rust` | ✅ Complete |
+| 13 | `test_build_rust.py` | 443 | 49 | `build_rust` | ✅ Complete |
+| 14 | `test_lint_filter_rust.py` | 273 | 45 | `lint_filter` (cross-cutting) | ✅ Complete |
+| 15 | `test_setup_rust.py` | 537 | 38 | `setup_rust` | ✅ Complete |
+| 16 | `test_dockerfiles_rust.py` | 227 | 36 | `dockerfiles_rust` | ✅ Complete |
+| 17 | `test_security_rust.py` | 376 | 34 | `save`, `docker_utils`, `cli` (cross-cutting) | ✅ Complete |
+| 18 | `test_run_agent_rust.py` | 1,372 | 31 | `run_agent` (cross-cutting) | ✅ Complete |
+| 19 | `test_rust_modules.py` | 342 | 26 | Multiple (integration) | ✅ Complete |
+| 20 | `test_string_brutality_rust.py` | 184 | 24 | String handling (cross-cutting) | ✅ Complete |
+| 21 | `test_type_coercion_rust.py` | 230 | 20 | YAML/config coercion (cross-cutting) | ✅ Complete |
+| 22 | `test_save_error_recovery_rust.py` | 441 | 19 | `save` (cross-cutting) | ✅ Complete |
+| 23 | `test_integration_smoke_rust.py` | 154 | 16 | CLI/agent flow (cross-cutting) | ✅ Complete |
+| 24 | `test_config_class_rust.py` | 178 | 12 | `Commit0Config` (cross-cutting) | ✅ Complete |
+| 25 | `test_concurrency_rust.py` | 265 | 10 | ThreadPool/multiprocessing (cross-cutting) | ✅ Complete |
+| 26 | `test_error_recovery_rust.py` | 169 | 10 | Error recovery (cross-cutting) | ✅ Complete |
+| | **TOTAL** | **15,783** | **1,337** | | |
 
 ---
 
@@ -63,6 +66,9 @@
 
 ### Light Coverage (< 30 tests)
 
+- **`cli`** (58 tests) — CLI utility functions: highlight, check_valid, check_commit0_path, config read/write/validate.
+- **`agents`** (58 tests) — Pricing, logging, `AiderReturn`, `AiderAgents`, model ID resolution.
+- **`run_agent`** (31 tests) — DirContext, branch creation, auto-commit, test file discovery, queue messages.
 - **`test_rust_modules.py`** (26 tests) — Integration cross-module sanity checks.
 - **`string_brutality`** (24 tests) — Unicode, special characters in repo names, paths, IDs.
 - **`type_coercion`** (20 tests) — YAML type coercion, config validation, Pydantic model edges.
@@ -83,4 +89,4 @@
 
 ---
 
-**Bottom line**: All 23 Rust test files have comprehensive test suites totaling **1,190** test functions across **12,628** lines of test code. Full module coverage achieved. All files follow the `*_rust*` naming convention.
+**Bottom line**: All 26 Rust test files have comprehensive test suites totaling **1,337** test functions across **15,783** lines of test code. Full module coverage achieved. All files follow the `*_rust*` naming convention.
