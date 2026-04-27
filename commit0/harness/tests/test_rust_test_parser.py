@@ -387,3 +387,199 @@ class TestParseNextestReportExpanded:
                 parse_nextest_report(str(report))
         finally:
             report.chmod(0o644)
+
+
+class TestEventStatusMap:
+    def test_ok_maps_to_passed(self):
+        from commit0.harness.rust_test_parser import _EVENT_STATUS_MAP
+
+        assert _EVENT_STATUS_MAP["ok"] == TestStatus.PASSED
+
+    def test_failed_maps_to_failed(self):
+        from commit0.harness.rust_test_parser import _EVENT_STATUS_MAP
+
+        assert _EVENT_STATUS_MAP["failed"] == TestStatus.FAILED
+
+    def test_ignored_maps_to_skipped(self):
+        from commit0.harness.rust_test_parser import _EVENT_STATUS_MAP
+
+        assert _EVENT_STATUS_MAP["ignored"] == TestStatus.SKIPPED
+
+    def test_timeout_maps_to_error(self):
+        from commit0.harness.rust_test_parser import _EVENT_STATUS_MAP
+
+        assert _EVENT_STATUS_MAP["timeout"] == TestStatus.ERROR
+
+    def test_map_has_four_entries(self):
+        from commit0.harness.rust_test_parser import _EVENT_STATUS_MAP
+
+        assert len(_EVENT_STATUS_MAP) == 4
+
+    def test_unknown_event_not_in_map(self):
+        from commit0.harness.rust_test_parser import _EVENT_STATUS_MAP
+
+        assert "started" not in _EVENT_STATUS_MAP
+
+
+class TestParseNextestJsonEdge:
+    def test_multiple_malformed_lines_skipped(self):
+        lines = "not json\nalso bad\n"
+        results = parse_nextest_json(lines)
+        assert results == []
+
+    def test_non_test_type_skipped(self):
+        line = json.dumps({"type": "suite", "event": "started"})
+        results = parse_nextest_json(line)
+        assert results == []
+
+    def test_unknown_event_skipped(self):
+        line = json.dumps({"type": "test", "event": "started", "name": "t"})
+        results = parse_nextest_json(line)
+        assert results == []
+
+    def test_missing_name_defaults_empty(self):
+        line = json.dumps({"type": "test", "event": "ok", "exec_time": 1.0})
+        results = parse_nextest_json(line)
+        assert results[0].name == ""
+
+    def test_missing_exec_time_defaults_zero(self):
+        line = json.dumps({"type": "test", "event": "ok", "name": "t"})
+        results = parse_nextest_json(line)
+        assert results[0].duration == 0.0
+
+    def test_missing_stdout_defaults_empty(self):
+        line = json.dumps({"type": "test", "event": "ok", "name": "t"})
+        results = parse_nextest_json(line)
+        assert results[0].stdout == ""
+
+    def test_whitespace_only_returns_empty(self):
+        results = parse_nextest_json("   \n  \n  ")
+        assert results == []
+
+    def test_mixed_valid_and_invalid_lines(self):
+        valid = json.dumps(
+            {"type": "test", "event": "ok", "name": "t1", "exec_time": 0.5}
+        )
+        lines = f"bad line\n{valid}\nalso bad\n"
+        results = parse_nextest_json(lines)
+        assert len(results) == 1
+        assert results[0].name == "t1"
+
+    def test_all_four_statuses(self):
+        lines = []
+        for event in ["ok", "failed", "ignored", "timeout"]:
+            lines.append(
+                json.dumps({"type": "test", "event": event, "name": f"t_{event}"})
+            )
+        results = parse_nextest_json("\n".join(lines))
+        assert len(results) == 4
+        statuses = {r.status for r in results}
+        assert statuses == {
+            TestStatus.PASSED,
+            TestStatus.FAILED,
+            TestStatus.SKIPPED,
+            TestStatus.ERROR,
+        }
+
+    def test_large_number_of_tests(self):
+        lines = []
+        for i in range(100):
+            lines.append(
+                json.dumps(
+                    {
+                        "type": "test",
+                        "event": "ok",
+                        "name": f"test_{i}",
+                        "exec_time": 0.1,
+                    }
+                )
+            )
+        results = parse_nextest_json("\n".join(lines))
+        assert len(results) == 100
+
+
+class TestParseNextestReportEdge:
+    def test_empty_file_returns_empty(self, tmp_path):
+        report = tmp_path / "empty.json"
+        report.write_text("")
+        result = parse_nextest_report(str(report))
+        assert result["tests"] == []
+        assert result["summary"]["total"] == 0
+
+    def test_summary_counts_correct(self, tmp_path):
+        lines = [
+            json.dumps({"type": "test", "event": "ok", "name": "t1"}),
+            json.dumps({"type": "test", "event": "ok", "name": "t2"}),
+            json.dumps({"type": "test", "event": "failed", "name": "t3"}),
+            json.dumps({"type": "test", "event": "ignored", "name": "t4"}),
+            json.dumps({"type": "test", "event": "timeout", "name": "t5"}),
+        ]
+        report = tmp_path / "report.json"
+        report.write_text("\n".join(lines))
+        result = parse_nextest_report(str(report))
+        assert result["summary"]["total"] == 5
+        assert result["summary"]["passed"] == 2
+        assert result["summary"]["failed"] == 1
+        assert result["summary"]["skipped"] == 1
+        assert result["summary"]["error"] == 1
+
+    def test_test_outcome_is_status_value(self, tmp_path):
+        line = json.dumps(
+            {"type": "test", "event": "ok", "name": "t1", "exec_time": 0.5}
+        )
+        report = tmp_path / "report.json"
+        report.write_text(line)
+        result = parse_nextest_report(str(report))
+        assert result["tests"][0]["outcome"] == TestStatus.PASSED.value
+
+    def test_test_has_name_outcome_duration(self, tmp_path):
+        line = json.dumps(
+            {"type": "test", "event": "ok", "name": "t1", "exec_time": 1.5}
+        )
+        report = tmp_path / "report.json"
+        report.write_text(line)
+        t = parse_nextest_report(str(report))["tests"][0]
+        assert set(t.keys()) == {"name", "outcome", "duration"}
+
+    def test_nonexistent_file_returns_empty(self):
+        result = parse_nextest_report("/no/such/path.json")
+        assert result["tests"] == []
+        assert result["summary"]["total"] == 0
+
+
+class TestRustTestResultDataclass:
+    def test_fields(self):
+        r = RustTestResult(
+            name="t", status=TestStatus.PASSED, duration=1.0, stdout="out"
+        )
+        assert r.name == "t"
+        assert r.status == TestStatus.PASSED
+        assert r.duration == 1.0
+        assert r.stdout == "out"
+
+    def test_equality(self):
+        a = RustTestResult(name="t", status=TestStatus.PASSED, duration=1.0, stdout="")
+        b = RustTestResult(name="t", status=TestStatus.PASSED, duration=1.0, stdout="")
+        assert a == b
+
+    def test_inequality(self):
+        a = RustTestResult(name="t1", status=TestStatus.PASSED, duration=1.0, stdout="")
+        b = RustTestResult(name="t2", status=TestStatus.PASSED, duration=1.0, stdout="")
+        assert a != b
+
+
+class TestModuleExportsParser:
+    def test_all_exports(self):
+        from commit0.harness import rust_test_parser as mod
+
+        assert set(mod.__all__) == {
+            "RustTestResult",
+            "parse_nextest_json",
+            "parse_nextest_report",
+        }
+
+    def test_all_accessible(self):
+        from commit0.harness import rust_test_parser as mod
+
+        for name in mod.__all__:
+            assert hasattr(mod, name)

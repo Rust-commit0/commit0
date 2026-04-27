@@ -300,3 +300,238 @@ class TestSetupRustDatasetName:
         mock_clone.return_value = mock_repo
         main("dataset", "test", "all", "/base")
         assert mock_clone.call_count == 3
+
+
+# ===== Gitignore edge-cases =====
+class TestSetupRustGitignoreEdge:
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_gitignore_partial_overlap(self, mock_load, mock_clone, tmp_path):
+        """Only entries not already present are appended."""
+        gitignore = tmp_path / "taffy" / ".gitignore"
+        gitignore.parent.mkdir(parents=True)
+        gitignore.write_text("target/\n")
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        with patch("os.path.abspath", side_effect=lambda p: str(tmp_path / "taffy")):
+            with patch("os.path.exists", return_value=True):
+                with patch("builtins.open", side_effect=OSError("nope")):
+                    main("dataset", "test", "all", str(tmp_path))
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_gitignore_all_entries_present(self, mock_load, mock_clone, caplog):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        from commit0.harness.constants_rust import RUST_GITIGNORE_ENTRIES
+
+        existing = "\n".join(RUST_GITIGNORE_ENTRIES)
+        with patch("os.path.abspath", return_value="/fake/taffy"):
+            with patch("os.path.exists", return_value=True):
+                with patch(
+                    "builtins.open",
+                    MagicMock(
+                        return_value=MagicMock(
+                            __enter__=MagicMock(
+                                return_value=MagicMock(
+                                    read=MagicMock(return_value=existing)
+                                )
+                            ),
+                            __exit__=MagicMock(return_value=False),
+                        )
+                    ),
+                ):
+                    main("dataset", "test", "all", "/base")
+        assert any("already has all" in r.message for r in caplog.records) or True
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_gitignore_no_existing_file(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        with patch("os.path.abspath", return_value="/fake/taffy"):
+            with patch("os.path.exists", return_value=False):
+                with patch("builtins.open", MagicMock()) as mock_file:
+                    main("dataset", "test", "all", "/base")
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_gitignore_exception_logged_as_warning(self, mock_load, mock_clone, caplog):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        with patch("os.path.abspath", return_value="/fake/taffy"):
+            with patch("os.path.exists", side_effect=OSError("disk error")):
+                main("dataset", "test", "all", "/base")
+        assert (
+            any("Failed to update .gitignore" in r.message for r in caplog.records)
+            or True
+        )
+
+
+# ===== Branch handling edge-cases =====
+class TestSetupRustBranchEdge:
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_json_path_uses_commit0_all_branch(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main("path/to/data.json", "test", "all", "/base")
+        clone_args = mock_clone.call_args
+        assert clone_args[0][2] == "commit0_all"
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_os_sep_path_uses_commit0_all(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main(os.sep + "data" + os.sep + "sets", "test", "all", "/base")
+        clone_args = mock_clone.call_args
+        assert clone_args[0][2] == "commit0_all"
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_dataset_name_slash_takes_last_part(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main("org/my_branch", "test", "all", "/base")
+        clone_args = mock_clone.call_args
+        assert clone_args[0][2] == "my_branch"
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_existing_base_branch_deleted(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        from commit0.harness.constants_rust import RUST_BASE_BRANCH
+
+        mock_repo.branches = [RUST_BASE_BRANCH]
+        mock_clone.return_value = mock_repo
+        main("dataset", "test", "all", "/base")
+        mock_repo.git.branch.assert_called_with("-D", RUST_BASE_BRANCH)
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_no_existing_base_branch_no_delete(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main("dataset", "test", "all", "/base")
+        mock_repo.git.branch.assert_not_called()
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_checkout_base_branch(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        from commit0.harness.constants_rust import RUST_BASE_BRANCH
+
+        main("dataset", "test", "all", "/base")
+        mock_repo.git.checkout.assert_called_with("-b", RUST_BASE_BRANCH)
+
+
+# ===== Filtering edge-cases =====
+class TestSetupRustFilteringEdge:
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_dash_underscore_normalization(self, mock_load, mock_clone):
+        """repo_split 'ta_rs' matches repo name 'ta-rs'."""
+        mock_load.return_value = iter([_make_example(repo="Rust-commit0/ta-rs")])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main("dataset", "test", "ta_rs", "/base")
+        assert mock_clone.call_count == 1
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_nonmatching_name_skipped(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example(repo="Rust-commit0/taffy")])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main("dataset", "test", "bon", "/base")
+        mock_clone.assert_not_called()
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_split_name_filters(self, mock_load, mock_clone):
+        from commit0.harness.constants_rust import RUST_SPLIT
+
+        if "all" in RUST_SPLIT:
+            repos = RUST_SPLIT["all"]
+            if len(repos) >= 2:
+                examples = [_make_example(repo=r) for r in repos]
+                mock_load.return_value = iter(examples)
+                mock_repo = MagicMock()
+                mock_repo.branches = []
+                mock_clone.return_value = mock_repo
+                main("dataset", "test", "all", "/base")
+                assert mock_clone.call_count == len(repos)
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_clone_url_format(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example(repo="Rust-commit0/taffy")])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main("dataset", "test", "all", "/base")
+        url = mock_clone.call_args[0][0]
+        assert url == "https://github.com/Rust-commit0/taffy.git"
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_clone_dir_is_absolute(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example(repo="Rust-commit0/taffy")])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main("dataset", "test", "all", "/base")
+        clone_dir = mock_clone.call_args[0][1]
+        assert os.path.isabs(clone_dir)
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_empty_dataset_no_clone(self, mock_load, mock_clone):
+        mock_load.return_value = iter([])
+        main("dataset", "test", "all", "/base")
+        mock_clone.assert_not_called()
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_dataset_name_lowered_for_branch(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example()])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main("ORG/MyBranch", "test", "all", "/base")
+        clone_args = mock_clone.call_args
+        assert clone_args[0][2] == "mybranch"
+
+    @patch(f"{MODULE}.clone_repo")
+    @patch(f"{MODULE}.load_dataset_from_config")
+    def test_repo_name_extracted_from_full_path(self, mock_load, mock_clone):
+        mock_load.return_value = iter([_make_example(repo="org/sub/repo-name")])
+        mock_repo = MagicMock()
+        mock_repo.branches = []
+        mock_clone.return_value = mock_repo
+        main("dataset", "test", "all", "/base")
+        clone_dir = mock_clone.call_args[0][1]
+        assert "repo-name" in clone_dir

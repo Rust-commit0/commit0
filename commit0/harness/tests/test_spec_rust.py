@@ -6,7 +6,11 @@ from dataclasses import dataclass
 
 MODULE = "commit0.harness.spec_rust"
 
-from commit0.harness.spec_rust import RustSpec, make_rust_spec, get_rust_specs_from_dataset
+from commit0.harness.spec_rust import (
+    RustSpec,
+    make_rust_spec,
+    get_rust_specs_from_dataset,
+)
 from commit0.harness.spec import Spec
 from commit0.harness.constants import ABSOLUTE_REPO_DIR, RELATIVE_REPO_DIR
 
@@ -69,7 +73,10 @@ class TestRustSpecBaseDockerfile:
 
 
 class TestRustSpecRepoDockerfile:
-    @patch(f"{MODULE}.get_dockerfile_repo_rust", return_value="FROM base\nRUN cargo build\n")
+    @patch(
+        f"{MODULE}.get_dockerfile_repo_rust",
+        return_value="FROM base\nRUN cargo build\n",
+    )
     def test_calls_get_dockerfile_repo_rust(self, mock_fn):
         spec = _make_spec()
         result = spec.repo_dockerfile
@@ -214,7 +221,11 @@ class TestRustSpecMakeEvalScriptList:
     def test_uses_custom_test_cmd(self):
         spec = _make_spec()
         scripts = spec.make_eval_script_list()
-        test_line = [s for s in scripts if "test" in s.lower() and "git" not in s and "echo" not in s]
+        test_line = [
+            s
+            for s in scripts
+            if "test" in s.lower() and "git" not in s and "echo" not in s
+        ]
         assert any("cargo nextest run" in s for s in test_line)
 
     def test_default_test_cmd_cargo_test(self):
@@ -321,4 +332,169 @@ class TestGetRustSpecsFromDataset:
 class TestModuleExports:
     def test_exports(self):
         import commit0.harness.spec_rust as mod
-        assert set(mod.__all__) == {"RustSpec", "make_rust_spec", "get_rust_specs_from_dataset"}
+
+        assert set(mod.__all__) == {
+            "RustSpec",
+            "make_rust_spec",
+            "get_rust_specs_from_dataset",
+        }
+
+
+class TestRustSpecEvalScriptEdge:
+    def test_default_cargo_test_when_no_test_key(self):
+        inst = _make_instance()
+        del inst["test"]
+        spec = _make_spec(instance=inst)
+        scripts = spec.make_eval_script_list()
+        assert any("cargo test" in s for s in scripts)
+
+    def test_default_cargo_test_when_test_not_dict(self):
+        inst = _make_instance()
+        inst["test"] = "run_all"
+        spec = _make_spec(instance=inst)
+        scripts = spec.make_eval_script_list()
+        assert any("cargo test" in s for s in scripts)
+
+    def test_default_cargo_test_when_test_dict_no_cmd(self):
+        inst = _make_instance()
+        inst["test"] = {"timeout": 300}
+        spec = _make_spec(instance=inst)
+        scripts = spec.make_eval_script_list()
+        assert any("cargo test" in s for s in scripts)
+
+    def test_custom_test_cmd_used(self):
+        inst = _make_instance()
+        inst["test"] = {"test_cmd": "cargo nextest run"}
+        spec = _make_spec(instance=inst)
+        scripts = spec.make_eval_script_list()
+        assert any("cargo nextest run" in s for s in scripts)
+
+    def test_eval_script_contains_git_reset(self):
+        spec = _make_spec()
+        scripts = spec.make_eval_script_list()
+        assert any("git reset --hard" in s for s in scripts)
+
+    def test_eval_script_contains_git_apply(self):
+        spec = _make_spec()
+        scripts = spec.make_eval_script_list()
+        assert any("git apply" in s for s in scripts)
+
+    def test_eval_script_contains_test_output_redirect(self):
+        spec = _make_spec()
+        scripts = spec.make_eval_script_list()
+        assert any("test_output.txt" in s for s in scripts)
+
+    def test_eval_script_contains_exit_code(self):
+        spec = _make_spec()
+        scripts = spec.make_eval_script_list()
+        assert any("test_exit_code.txt" in s for s in scripts)
+
+    def test_eval_script_absolute_uses_slash_patch(self):
+        spec = _make_spec(absolute=True)
+        scripts = spec.make_eval_script_list()
+        assert any("/patch.diff" in s for s in scripts)
+
+    def test_eval_script_relative_uses_dotdot_patch(self):
+        spec = _make_spec(absolute=False, repo_directory=RELATIVE_REPO_DIR)
+        scripts = spec.make_eval_script_list()
+        assert any("../patch.diff" in s for s in scripts)
+
+    def test_eval_script_contains_test_ids_placeholder(self):
+        spec = _make_spec()
+        scripts = spec.make_eval_script_list()
+        assert any("{test_ids}" in s for s in scripts)
+
+    def test_eval_script_starts_with_cd(self):
+        spec = _make_spec()
+        scripts = spec.make_eval_script_list()
+        assert scripts[0].startswith("cd ")
+
+
+class TestRustSpecRepoScriptEdge:
+    def test_repo_script_contains_git_clone(self):
+        spec = _make_spec()
+        scripts = spec.make_repo_script_list()
+        assert any("git clone" in s for s in scripts)
+
+    def test_repo_script_contains_chmod(self):
+        spec = _make_spec()
+        scripts = spec.make_repo_script_list()
+        assert any("chmod -R 777" in s for s in scripts)
+
+    def test_repo_script_contains_git_fetch(self):
+        spec = _make_spec()
+        scripts = spec.make_repo_script_list()
+        assert any("git fetch" in s for s in scripts)
+
+    def test_repo_script_contains_submodule_update(self):
+        spec = _make_spec()
+        scripts = spec.make_repo_script_list()
+        assert any("submodule update" in s for s in scripts)
+
+    def test_repo_script_contains_cargo_fetch(self):
+        spec = _make_spec()
+        scripts = spec.make_repo_script_list()
+        assert any("cargo fetch" in s for s in scripts)
+
+    def test_repo_script_removes_origin(self):
+        spec = _make_spec()
+        scripts = spec.make_repo_script_list()
+        assert any("remote remove origin" in s for s in scripts)
+
+    def test_repo_script_resets_to_base_commit(self):
+        spec = _make_spec()
+        scripts = spec.make_repo_script_list()
+        assert any("abc123" in s and "reset --hard" in s for s in scripts)
+
+    def test_repo_script_clone_uses_repo_name(self):
+        spec = _make_spec()
+        scripts = spec.make_repo_script_list()
+        assert any("Rust-commit0/taffy" in s for s in scripts)
+
+
+class TestMakeRustSpecEdge:
+    def test_returns_rust_spec_type(self):
+        result = make_rust_spec(_make_instance(), absolute=True)
+        assert isinstance(result, RustSpec)
+
+    def test_repo_field_is_instance_id(self):
+        result = make_rust_spec(_make_instance(instance_id="my-id"), absolute=True)
+        assert result.repo == "my-id"
+
+    def test_absolute_true_uses_absolute_dir(self):
+        result = make_rust_spec(_make_instance(), absolute=True)
+        assert result.repo_directory == ABSOLUTE_REPO_DIR
+
+    def test_absolute_false_uses_relative_dir(self):
+        result = make_rust_spec(_make_instance(), absolute=False)
+        assert result.repo_directory == RELATIVE_REPO_DIR
+
+    def test_instance_preserved(self):
+        inst = _make_instance()
+        result = make_rust_spec(inst, absolute=True)
+        assert result.instance["repo"] == inst["repo"]
+
+
+class TestGetRustSpecsEdge:
+    def test_already_rust_specs_returned_as_is(self):
+        spec = _make_spec()
+        result = get_rust_specs_from_dataset([spec], absolute=True)
+        assert result[0] is spec
+
+    def test_mixed_not_detected_as_specs(self):
+        result = get_rust_specs_from_dataset([_make_instance()], absolute=True)
+        assert isinstance(result[0], RustSpec)
+
+    def test_preserves_order(self):
+        insts = [
+            _make_instance(instance_id="z"),
+            _make_instance(instance_id="a"),
+        ]
+        result = get_rust_specs_from_dataset(insts, absolute=True)
+        assert result[0].repo == "z"
+        assert result[1].repo == "a"
+
+    def test_large_dataset(self):
+        insts = [_make_instance(instance_id=f"id-{i}") for i in range(50)]
+        result = get_rust_specs_from_dataset(insts, absolute=True)
+        assert len(result) == 50

@@ -124,7 +124,9 @@ class TestRustSplit:
 
     def test_all_repos_start_with_rust_commit0(self):
         for repo in RUST_SPLIT["all"]:
-            assert repo.startswith("Rust-commit0/"), f"Repo {repo} not in Rust-commit0 org"
+            assert repo.startswith("Rust-commit0/"), (
+                f"Repo {repo} not in Rust-commit0 org"
+            )
 
     def test_taffy_in_all(self):
         assert "Rust-commit0/taffy" in RUST_SPLIT["all"]
@@ -241,24 +243,39 @@ class TestRustRepoInstance:
 
     def test_custom_edition(self):
         inst = RustRepoInstance(
-            instance_id="t", repo="r", base_commit="b",
-            reference_commit="r", setup={}, test={}, src_dir="s",
+            instance_id="t",
+            repo="r",
+            base_commit="b",
+            reference_commit="r",
+            setup={},
+            test={},
+            src_dir="s",
             edition="2018",
         )
         assert inst.edition == "2018"
 
     def test_custom_features(self):
         inst = RustRepoInstance(
-            instance_id="t", repo="r", base_commit="b",
-            reference_commit="r", setup={}, test={}, src_dir="s",
+            instance_id="t",
+            repo="r",
+            base_commit="b",
+            reference_commit="r",
+            setup={},
+            test={},
+            src_dir="s",
             features=["serde", "tokio"],
         )
         assert inst.features == ["serde", "tokio"]
 
     def test_workspace_true(self):
         inst = RustRepoInstance(
-            instance_id="t", repo="r", base_commit="b",
-            reference_commit="r", setup={}, test={}, src_dir="s",
+            instance_id="t",
+            repo="r",
+            base_commit="b",
+            reference_commit="r",
+            setup={},
+            test={},
+            src_dir="s",
             workspace=True,
         )
         assert inst.workspace is True
@@ -289,8 +306,13 @@ class TestRustRepoInstance:
 
     def test_features_is_mutable_list(self):
         inst = RustRepoInstance(
-            instance_id="t", repo="r", base_commit="b",
-            reference_commit="r", setup={}, test={}, src_dir="s",
+            instance_id="t",
+            repo="r",
+            base_commit="b",
+            reference_commit="r",
+            setup={},
+            test={},
+            src_dir="s",
         )
         inst.features.append("feature1")
         assert "feature1" in inst.features
@@ -301,8 +323,13 @@ class TestRustRepoInstance:
 
     def test_equality(self):
         kwargs = dict(
-            instance_id="t", repo="r", base_commit="b",
-            reference_commit="r", setup={}, test={}, src_dir="s",
+            instance_id="t",
+            repo="r",
+            base_commit="b",
+            reference_commit="r",
+            setup={},
+            test={},
+            src_dir="s",
         )
         a = RustRepoInstance(**kwargs)
         b = RustRepoInstance(**kwargs)
@@ -310,8 +337,13 @@ class TestRustRepoInstance:
 
     def test_inequality_different_edition(self):
         kwargs = dict(
-            instance_id="t", repo="r", base_commit="b",
-            reference_commit="r", setup={}, test={}, src_dir="s",
+            instance_id="t",
+            repo="r",
+            base_commit="b",
+            reference_commit="r",
+            setup={},
+            test={},
+            src_dir="s",
         )
         a = RustRepoInstance(**kwargs, edition="2018")
         b = RustRepoInstance(**kwargs, edition="2021")
@@ -345,16 +377,193 @@ class TestTestStatusImport:
 class TestModuleExports:
     def test_all_exports(self):
         import commit0.harness.constants_rust as mod
+
         expected = {
-            "RustRepoInstance", "RUST_VERSION", "RUST_STUB_MARKER",
-            "RUST_SPLIT", "RUST_BASE_BRANCH", "RUST_GITIGNORE_ENTRIES",
-            "CARGO_NEXTEST_VERSION", "RUN_RUST_TESTS_LOG_DIR",
-            "RUST_TEST_IDS_DIR", "DOCKERFILES_RUST_DIR",
-            "DOCKERFILES_DIR", "TestStatus",
+            "RustRepoInstance",
+            "RUST_VERSION",
+            "RUST_STUB_MARKER",
+            "RUST_SPLIT",
+            "RUST_BASE_BRANCH",
+            "RUST_GITIGNORE_ENTRIES",
+            "CARGO_NEXTEST_VERSION",
+            "RUN_RUST_TESTS_LOG_DIR",
+            "RUST_TEST_IDS_DIR",
+            "DOCKERFILES_RUST_DIR",
+            "DOCKERFILES_DIR",
+            "TestStatus",
         }
         assert expected == set(mod.__all__)
 
     def test_all_exports_are_accessible(self):
         import commit0.harness.constants_rust as mod
+
         for name in mod.__all__:
             assert hasattr(mod, name), f"{name} in __all__ but not accessible"
+
+
+class TestRustRepoInstanceEdge:
+    def test_default_edition(self):
+        inst = RustRepoInstance(
+            repo="org/r",
+            instance_id="r-1",
+            base_commit="a",
+            reference_commit="b",
+            setup={},
+            test={},
+            src_dir="src",
+        )
+        assert inst.edition == "2021"
+
+    def test_custom_edition(self):
+        inst = RustRepoInstance(
+            repo="org/r",
+            instance_id="r-1",
+            base_commit="a",
+            reference_commit="b",
+            setup={},
+            test={},
+            src_dir="src",
+            edition="2024",
+        )
+        assert inst.edition == "2024"
+
+    def test_default_features_empty(self):
+        inst = RustRepoInstance(
+            repo="org/r",
+            instance_id="r-1",
+            base_commit="a",
+            reference_commit="b",
+            setup={},
+            test={},
+            src_dir="src",
+        )
+        assert inst.features == []
+
+    def test_custom_features(self):
+        inst = RustRepoInstance(
+            repo="org/r",
+            instance_id="r-1",
+            base_commit="a",
+            reference_commit="b",
+            setup={},
+            test={},
+            src_dir="src",
+            features=["serde", "async"],
+        )
+        assert inst.features == ["serde", "async"]
+
+    def test_default_workspace_false(self):
+        inst = RustRepoInstance(
+            repo="org/r",
+            instance_id="r-1",
+            base_commit="a",
+            reference_commit="b",
+            setup={},
+            test={},
+            src_dir="src",
+        )
+        assert inst.workspace is False
+
+    def test_workspace_true(self):
+        inst = RustRepoInstance(
+            repo="org/r",
+            instance_id="r-1",
+            base_commit="a",
+            reference_commit="b",
+            setup={},
+            test={},
+            src_dir="src",
+            workspace=True,
+        )
+        assert inst.workspace is True
+
+    def test_inherits_from_repo_instance(self):
+        assert issubclass(RustRepoInstance, RepoInstance)
+
+    def test_features_independent_across_instances(self):
+        a = RustRepoInstance(
+            repo="org/a",
+            instance_id="a-1",
+            base_commit="a",
+            reference_commit="b",
+            setup={},
+            test={},
+            src_dir="src",
+        )
+        b = RustRepoInstance(
+            repo="org/b",
+            instance_id="b-1",
+            base_commit="a",
+            reference_commit="b",
+            setup={},
+            test={},
+            src_dir="src",
+        )
+        a.features.append("serde")
+        assert b.features == []
+
+
+class TestRustSplitEdge:
+    def test_all_key_exists(self):
+        assert "all" in RUST_SPLIT
+
+    def test_all_repos_are_strings(self):
+        for repo in RUST_SPLIT["all"]:
+            assert isinstance(repo, str)
+
+    def test_all_repos_contain_slash(self):
+        for repo in RUST_SPLIT["all"]:
+            assert "/" in repo
+
+    def test_all_repos_unique(self):
+        repos = RUST_SPLIT["all"]
+        assert len(repos) == len(set(repos))
+
+    def test_split_is_dict(self):
+        assert isinstance(RUST_SPLIT, dict)
+
+    def test_each_split_value_is_list(self):
+        for key, val in RUST_SPLIT.items():
+            assert isinstance(val, list)
+
+
+class TestPathConstants:
+    def test_run_log_dir_is_path(self):
+        assert isinstance(RUN_RUST_TESTS_LOG_DIR, Path)
+
+    def test_test_ids_dir_is_path(self):
+        assert isinstance(RUST_TEST_IDS_DIR, Path)
+
+    def test_dockerfiles_rust_dir_is_path(self):
+        assert isinstance(DOCKERFILES_RUST_DIR, Path)
+
+    def test_dockerfiles_dir_is_path(self):
+        assert isinstance(DOCKERFILES_DIR, Path)
+
+    def test_run_log_dir_relative(self):
+        assert not RUN_RUST_TESTS_LOG_DIR.is_absolute()
+
+    def test_test_ids_dir_contains_rust(self):
+        assert "rust" in str(RUST_TEST_IDS_DIR)
+
+    def test_dockerfiles_rust_dir_contains_dockerfiles(self):
+        assert "dockerfiles" in str(DOCKERFILES_RUST_DIR)
+
+
+class TestGitignoreEntries:
+    def test_target_in_entries(self):
+        assert "target/" in RUST_GITIGNORE_ENTRIES
+
+    def test_all_entries_are_strings(self):
+        for entry in RUST_GITIGNORE_ENTRIES:
+            assert isinstance(entry, str)
+
+    def test_no_empty_entries(self):
+        for entry in RUST_GITIGNORE_ENTRIES:
+            assert len(entry) > 0
+
+    def test_entries_is_list(self):
+        assert isinstance(RUST_GITIGNORE_ENTRIES, list)
+
+    def test_entries_not_empty(self):
+        assert len(RUST_GITIGNORE_ENTRIES) > 0
