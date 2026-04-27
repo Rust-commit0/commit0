@@ -2,8 +2,8 @@
 
 **Date**: Apr 27, 2026  
 **Location**: `commit0/harness/tests/` and `agent/tests/`  
-**Total Files**: 14  
-**Total Test Functions**: **1,000**
+**Total Files**: 23  
+**Total Test Functions**: **1,190**
 
 ---
 
@@ -22,10 +22,19 @@
 | 9 | `test_patch_utils_rust.py` | 312 | 55 | `patch_utils_rust` | ✅ Complete |
 | 10 | `test_health_check_rust.py` | 300 | 52 | `health_check_rust` | ✅ Complete |
 | 11 | `test_build_rust.py` | 443 | 49 | `build_rust` | ✅ Complete |
-| 12 | `test_setup_rust.py` | 537 | 38 | `setup_rust` | ✅ Complete |
-| 13 | `test_dockerfiles_rust.py` | 227 | 36 | `dockerfiles_rust` | ✅ Complete |
-| 14 | `test_rust_modules.py` | 342 | 26 | Multiple (integration) | ✅ Complete |
-| | **TOTAL** | **10,358** | **1,000** | | |
+| 12 | `test_lint_filter_rust.py` | 273 | 45 | `lint_filter` (cross-cutting) | ✅ Complete |
+| 13 | `test_setup_rust.py` | 537 | 38 | `setup_rust` | ✅ Complete |
+| 14 | `test_dockerfiles_rust.py` | 227 | 36 | `dockerfiles_rust` | ✅ Complete |
+| 15 | `test_security_rust.py` | 376 | 34 | `save`, `docker_utils`, `cli` (cross-cutting) | ✅ Complete |
+| 16 | `test_rust_modules.py` | 342 | 26 | Multiple (integration) | ✅ Complete |
+| 17 | `test_string_brutality_rust.py` | 184 | 24 | String handling (cross-cutting) | ✅ Complete |
+| 18 | `test_type_coercion_rust.py` | 230 | 20 | YAML/config coercion (cross-cutting) | ✅ Complete |
+| 19 | `test_save_error_recovery_rust.py` | 441 | 19 | `save` (cross-cutting) | ✅ Complete |
+| 20 | `test_integration_smoke_rust.py` | 154 | 16 | CLI/agent flow (cross-cutting) | ✅ Complete |
+| 21 | `test_config_class_rust.py` | 178 | 12 | `Commit0Config` (cross-cutting) | ✅ Complete |
+| 22 | `test_concurrency_rust.py` | 265 | 10 | ThreadPool/multiprocessing (cross-cutting) | ✅ Complete |
+| 23 | `test_error_recovery_rust.py` | 169 | 10 | Error recovery (cross-cutting) | ✅ Complete |
+| | **TOTAL** | **12,628** | **1,190** | | |
 
 ---
 
@@ -47,12 +56,21 @@
 - **`patch_utils_rust`** (55 tests) — Target detection, filtering, validation, generation. Parametrized edge cases, performance.
 - **`health_check_rust`** (52 tests) — `_RUST_TOOLS` structure, `_check_tool` (success/failure/timeout), `main()` (prints, logging, parametrized failures).
 - **`build_rust`** (49 tests) — `_load_datasets` (JSON variants, directory, dict-to-list, sorted glob), `main()` (workers, verbose, Docker client, partial failure, logging, exit codes).
+- **`lint_filter`** (45 tests) — Cross-cutting lint filter logic.
 - **`setup_rust`** (38 tests) — `main()` filtering (split/name/dash-underscore normalization), cloning (URL format, absolute dirs), branch handling (JSON path, slash extraction, lowering, deletion), gitignore (partial overlap, exception logging, all-present).
 - **`dockerfiles_rust`** (36 tests) — Base/repo dockerfile generation. Template handling, FROM line, proxy args, ordering.
+- **`security`** (34 tests) — Shell injection, credential exposure, YAML bombs across save, docker_utils, cli.
 
-### Integration / Cross-Module
+### Light Coverage (< 30 tests)
 
-- **`test_rust_modules.py`** (26 tests) — Overlapping coverage across `build_rust`, `setup_rust`, `lint_rust`, `evaluate_rust`. Serves as a cross-cutting sanity check.
+- **`test_rust_modules.py`** (26 tests) — Integration cross-module sanity checks.
+- **`string_brutality`** (24 tests) — Unicode, special characters in repo names, paths, IDs.
+- **`type_coercion`** (20 tests) — YAML type coercion, config validation, Pydantic model edges.
+- **`save_error_recovery`** (19 tests) — Silent push failures, credential handling in save.py.
+- **`integration_smoke`** (16 tests) — CLI invocations and agent flow mocks.
+- **`config_class`** (12 tests) — `Commit0Config` dataclass and config file handling.
+- **`concurrency`** (10 tests) — ThreadPoolExecutor, multiprocessing.Pool patterns.
+- **`error_recovery`** (10 tests) — Bare except block behavior across modules.
 
 ---
 
@@ -65,4 +83,4 @@
 
 ---
 
-**Bottom line**: All 14 Rust test files have comprehensive test suites totaling **1,000** test functions across **10,358** lines of test code. Full module coverage achieved.
+**Bottom line**: All 23 Rust test files have comprehensive test suites totaling **1,190** test functions across **12,628** lines of test code. Full module coverage achieved. All files follow the `*_rust*` naming convention.
